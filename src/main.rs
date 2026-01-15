@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 
 mod error;
+mod profile;
 
 pub use error::{Ec2CliError, Result};
+pub use profile::{Profile, ProfileLoader};
 
 #[derive(Parser)]
 #[command(name = "ec2-cli")]
@@ -198,16 +200,80 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Profile { command } => match command {
             ProfileCommands::List => {
-                println!("Listing profiles...");
-                todo!("Implement profile list")
+                let loader = ProfileLoader::new();
+                let profiles = loader.list()?;
+
+                if profiles.is_empty() {
+                    println!("No profiles found.");
+                } else {
+                    println!("{:<20} {:<10} {}", "NAME", "SOURCE", "PATH");
+                    println!("{}", "-".repeat(60));
+                    for info in profiles {
+                        let path_str = info
+                            .path
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        println!("{:<20} {:<10} {}", info.name, info.source, path_str);
+                    }
+                }
+                Ok(())
             }
             ProfileCommands::Show { name } => {
-                println!("Showing profile: {}", name);
-                todo!("Implement profile show")
+                let loader = ProfileLoader::new();
+                let profile = loader.load(&name)?;
+
+                println!("Profile: {}", profile.name);
+                println!();
+                println!("Instance:");
+                println!("  Type: {}", profile.instance.instance_type);
+                if !profile.instance.fallback_types.is_empty() {
+                    println!("  Fallback types: {:?}", profile.instance.fallback_types);
+                }
+                println!("  AMI: {} ({})", profile.instance.ami.ami_type, profile.instance.ami.architecture);
+                if let Some(ref ami_id) = profile.instance.ami.id {
+                    println!("  AMI ID: {}", ami_id);
+                }
+                println!();
+                println!("Storage:");
+                println!("  Root volume: {} GB ({})",
+                    profile.instance.storage.root_volume.size_gb,
+                    profile.instance.storage.root_volume.volume_type);
+                println!();
+                println!("Packages:");
+                if !profile.packages.system.is_empty() {
+                    println!("  System: {:?}", profile.packages.system);
+                }
+                if profile.packages.rust.enabled {
+                    println!("  Rust: {} ({:?})",
+                        profile.packages.rust.channel,
+                        profile.packages.rust.components);
+                }
+                if !profile.packages.cargo.is_empty() {
+                    println!("  Cargo: {:?}", profile.packages.cargo);
+                }
+                if !profile.environment.is_empty() {
+                    println!();
+                    println!("Environment:");
+                    for (key, value) in &profile.environment {
+                        println!("  {}={}", key, value);
+                    }
+                }
+                Ok(())
             }
             ProfileCommands::Validate { name } => {
-                println!("Validating profile: {}", name);
-                todo!("Implement profile validate")
+                let loader = ProfileLoader::new();
+                let profile = loader.load(&name)?;
+
+                match profile.validate() {
+                    Ok(()) => {
+                        println!("Profile '{}' is valid.", name);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        println!("Profile '{}' validation failed: {}", name, e);
+                        Err(e.into())
+                    }
+                }
             }
         },
         Commands::Config { command } => match command {
