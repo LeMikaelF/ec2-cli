@@ -134,7 +134,7 @@ pub async fn execute(
     // Wait for git repo to be ready (only if project is configured)
     if project_name.is_some() {
         let spinner = create_spinner("Waiting for git repo setup...");
-        wait_for_git_ready(&instance_id, username, Some(&ssh_key_path_str), 60).await?;
+        wait_for_git_ready(&instance_id, username, Some(&ssh_key_path_str), 300).await?;
         spinner.finish_with_message("Git repo ready");
     }
     crate::state::save_instance(
