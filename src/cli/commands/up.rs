@@ -16,6 +16,28 @@ fn get_username_for_ami(_ami_type: &str) -> &'static str {
     "ubuntu"
 }
 
+/// Print a warning message when instance setup fails after launch
+fn print_cleanup_warning(name: &str, instance_id: &str, security_group_id: &str, region: &str) {
+    eprintln!();
+    eprintln!("WARNING: Instance was created but setup did not complete.");
+    eprintln!("The instance and security group must be cleaned up manually:");
+    eprintln!();
+    eprintln!("  Instance:          {} ({})", name, instance_id);
+    eprintln!("  Security Group ID: {}", security_group_id);
+    eprintln!("  Region:            {}", region);
+    eprintln!();
+    eprintln!("To clean up via AWS CLI:");
+    eprintln!(
+        "  aws ec2 terminate-instances --instance-ids {} --region {}",
+        instance_id, region
+    );
+    eprintln!("  # Wait for termination, then:");
+    eprintln!(
+        "  aws ec2 delete-security-group --group-id {} --region {}",
+        security_group_id, region
+    );
+}
+
 pub async fn execute(
     profile_name: Option<String>,
     instance_name: Option<String>,
@@ -120,12 +142,20 @@ pub async fn execute(
 
     // Wait for instance to be running
     let spinner = create_spinner("Waiting for instance to start...");
-    wait_for_running(&clients, &instance_id, 300).await?;
+    if let Err(e) = wait_for_running(&clients, &instance_id, 300).await {
+        spinner.finish_and_clear();
+        print_cleanup_warning(&name, &instance_id, &security_group_id, &clients.region);
+        return Err(e);
+    }
     spinner.finish_with_message("Instance running");
 
     // Wait for SSM agent to be ready
     let spinner = create_spinner("Waiting for SSM agent...");
-    wait_for_ssm_ready(&clients, &instance_id, 600).await?;
+    if let Err(e) = wait_for_ssm_ready(&clients, &instance_id, 600).await {
+        spinner.finish_and_clear();
+        print_cleanup_warning(&name, &instance_id, &security_group_id, &clients.region);
+        return Err(e);
+    }
     spinner.finish_with_message("SSM agent ready");
 
     // Save state with username, security group ID, and SSH key path
@@ -134,7 +164,12 @@ pub async fn execute(
     // Wait for git repo to be ready (only if project is configured)
     if project_name.is_some() {
         let spinner = create_spinner("Waiting for git repo setup...");
-        wait_for_git_ready(&instance_id, username, Some(&ssh_key_path_str), 300).await?;
+        if let Err(e) = wait_for_git_ready(&instance_id, username, Some(&ssh_key_path_str), 300).await
+        {
+            spinner.finish_and_clear();
+            print_cleanup_warning(&name, &instance_id, &security_group_id, &clients.region);
+            return Err(e);
+        }
         spinner.finish_with_message("Git repo ready");
     }
     crate::state::save_instance(
