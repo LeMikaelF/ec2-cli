@@ -74,11 +74,12 @@ async fn validate_subnet(clients: &AwsClients, subnet_id: &str, vpc_id: &str) ->
 
 /// Get or create IAM role and instance profile for SSM
 async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, String)> {
-    let role_name = "ec2-cli-instance-role";
-    let profile_name = "ec2-cli-instance-profile";
+    let hash = super::client::machine_hash();
+    let role_name = format!("ec2-cli-instance-role-{}", hash);
+    let profile_name = format!("ec2-cli-instance-profile-{}", hash);
 
     // Check if role already exists
-    let role_exists = match clients.iam.get_role().role_name(role_name).send().await {
+    let role_exists = match clients.iam.get_role().role_name(&role_name).send().await {
         Ok(_) => true,
         Err(e) => {
             // Check if it's a "role not found" error vs other IAM errors
@@ -113,7 +114,7 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
         clients
             .iam
             .create_role()
-            .role_name(role_name)
+            .role_name(&role_name)
             .assume_role_policy_document(assume_role_policy)
             .description("Role for ec2-cli managed instances")
             .tags(
@@ -132,21 +133,21 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
         clients
             .iam
             .attach_role_policy()
-            .role_name(role_name)
+            .role_name(&role_name)
             .policy_arn("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
             .send()
             .await
             .map_err(Ec2CliError::iam)?;
     } else {
         // Role exists - ensure managed policy is attached (migration from old inline policy)
-        ensure_managed_policy_attached(clients, role_name).await?;
+        ensure_managed_policy_attached(clients, &role_name).await?;
     }
 
     // Check if instance profile exists
     let existing_profile = match clients
         .iam
         .get_instance_profile()
-        .instance_profile_name(profile_name)
+        .instance_profile_name(&profile_name)
         .send()
         .await
     {
@@ -175,8 +176,8 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
                 clients
                     .iam
                     .add_role_to_instance_profile()
-                    .instance_profile_name(profile_name)
-                    .role_name(role_name)
+                    .instance_profile_name(&profile_name)
+                    .role_name(&role_name)
                     .send()
                     .await
                     .map_err(Ec2CliError::iam)?;
@@ -192,7 +193,7 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
             let profile = clients
                 .iam
                 .create_instance_profile()
-                .instance_profile_name(profile_name)
+                .instance_profile_name(&profile_name)
                 .tags(
                     aws_sdk_iam::types::Tag::builder()
                         .key(MANAGED_TAG_KEY)
@@ -208,8 +209,8 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
             clients
                 .iam
                 .add_role_to_instance_profile()
-                .instance_profile_name(profile_name)
-                .role_name(role_name)
+                .instance_profile_name(&profile_name)
+                .role_name(&role_name)
                 .send()
                 .await
                 .map_err(Ec2CliError::iam)?;
@@ -225,7 +226,7 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
         }
     };
 
-    Ok((profile_arn, profile_name.to_string()))
+    Ok((profile_arn, profile_name))
 }
 
 const SSM_MANAGED_POLICY_ARN: &str = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore";

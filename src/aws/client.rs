@@ -8,6 +8,31 @@ use aws_sdk_sts::Client as StsClient;
 use crate::config::Settings;
 use crate::{Ec2CliError, Result};
 
+/// FNV-1a hash algorithm for stable hashing across Rust versions.
+/// Unlike DefaultHasher, FNV-1a produces consistent results regardless
+/// of Rust version or compilation target.
+fn fnv1a_hash(data: &str) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in data.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Generate a short hash based on machine hostname.
+/// Used to create unique AWS resource names per machine.
+pub fn machine_hash() -> String {
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    format!("{:08x}", fnv1a_hash(&hostname) & 0xFFFFFFFF)
+}
+
 /// AWS client wrapper holding all service clients
 #[derive(Clone)]
 pub struct AwsClients {
