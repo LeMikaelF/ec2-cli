@@ -1,5 +1,8 @@
-use std::process::{Command, Stdio};
+use std::borrow::Cow;
 
+use shell_escape::escape;
+
+use super::ssm_ssh_options;
 use crate::state::{get_instance, resolve_instance_name};
 use crate::{Ec2CliError, Result};
 
@@ -11,41 +14,23 @@ pub fn execute(name: String, src: String, dest: String, recursive: bool) -> Resu
     let instance_state = get_instance(&name)?
         .ok_or_else(|| Ec2CliError::InstanceNotFound(name.clone()))?;
 
-    let instance_id = &instance_state.instance_id;
-    let username = &instance_state.username;
-
     // Parse source and destination to determine direction
     let (local_path, remote_path, is_upload) = parse_paths(&src, &dest)?;
 
-    // Build SCP command
-    let mut cmd = Command::new("scp");
+    let escaped_remote_path = escape(Cow::Borrowed(&remote_path));
+    let remote = format!(
+        "{}@{}:{}",
+        instance_state.username, instance_state.instance_id, escaped_remote_path
+    );
 
-    if recursive {
-        cmd.arg("-r");
-    }
+    let ssm_opts = ssm_ssh_options();
+    let recursive_flag = if recursive { "-r " } else { "" };
+    let escaped_local = escape(Cow::Borrowed(&local_path));
 
     if is_upload {
-        // Local to remote
-        cmd.arg(&local_path);
-        cmd.arg(format!("{}@{}:{}", username, instance_id, remote_path));
+        println!("scp {} {}{} {}", ssm_opts, recursive_flag, escaped_local, remote);
     } else {
-        // Remote to local
-        cmd.arg(format!("{}@{}:{}", username, instance_id, remote_path));
-        cmd.arg(&local_path);
-    }
-
-    let status = cmd
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .map_err(|e| Ec2CliError::ScpTransfer(e.to_string()))?;
-
-    if !status.success() {
-        return Err(Ec2CliError::ScpTransfer(format!(
-            "SCP failed with exit code: {:?}",
-            status.code()
-        )));
+        println!("scp {} {}{} {}", ssm_opts, recursive_flag, remote, escaped_local);
     }
 
     Ok(())
