@@ -325,14 +325,17 @@ READMEEOF
         ));
         script.push_str(&format!("chown {}:{} /home/{}/README.md\n\n", username, username, username));
 
-        // Configure MOTD to show README on login instead of default AWS messages
+        // Configure MOTD to show system info + README on login instead of default AWS messages
         script.push_str("echo 'Configuring login message...'\n");
         // Disable default Ubuntu MOTD components
         script.push_str("chmod -x /etc/update-motd.d/* 2>/dev/null || true\n");
+        // Re-enable landscape-sysinfo for system information display
+        script.push_str("chmod +x /etc/update-motd.d/50-landscape-sysinfo 2>/dev/null || true\n");
         // Create custom MOTD script that displays the README
         script.push_str(&format!(
             r#"cat > /etc/update-motd.d/99-ec2-cli << 'MOTDEOF'
 #!/bin/bash
+echo ""
 cat /home/{}/README.md 2>/dev/null || echo "ec2-cli development instance"
 MOTDEOF
 "#,
