@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use aws_sdk_ec2::types::{
     BlockDeviceMapping, EbsBlockDevice, Filter, HttpTokensState, Instance,
     InstanceMetadataEndpointState, InstanceMetadataOptionsRequest, InstanceStateName,
-    InstanceType as AwsInstanceType, Tag,
+    InstanceType as AwsInstanceType,
 };
+use uuid::Uuid;
 
 use crate::config::Settings;
 use crate::profile::Profile;
@@ -11,10 +14,62 @@ use crate::{Ec2CliError, Result};
 use super::super::client::{create_tags, AwsClients, MANAGED_TAG_KEY, MANAGED_TAG_VALUE, NAME_TAG_KEY};
 use super::super::infrastructure::Infrastructure;
 
+/// Create a per-instance security group
+pub async fn create_instance_security_group(
+    clients: &AwsClients,
+    vpc_id: &str,
+    instance_name: &str,
+    custom_tags: &HashMap<String, String>,
+) -> Result<String> {
+    // Generate unique suffix for security group name
+    let hash = &Uuid::new_v4().to_string()[..8];
+    let sg_name = format!("ec2-cli-{}-{}", instance_name, hash);
+
+    let sg = clients
+        .ec2
+        .create_security_group()
+        .group_name(&sg_name)
+        .description(format!("Security group for ec2-cli instance {}", instance_name))
+        .vpc_id(vpc_id)
+        .tag_specifications(
+            aws_sdk_ec2::types::TagSpecification::builder()
+                .resource_type(aws_sdk_ec2::types::ResourceType::SecurityGroup)
+                .set_tags(Some(create_tags(instance_name, custom_tags)))
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(Ec2CliError::ec2)?;
+
+    let security_group_id = sg
+        .group_id()
+        .ok_or_else(|| Ec2CliError::Ec2("No security group ID returned".to_string()))?
+        .to_string();
+
+    // Security group has default egress rule (0.0.0.0/0) which is needed for SSM via internet
+    // No inbound rules are needed - SSM Session Manager doesn't require inbound ports
+
+    Ok(security_group_id)
+}
+
+/// Delete a security group
+pub async fn delete_security_group(clients: &AwsClients, security_group_id: &str) -> Result<()> {
+    clients
+        .ec2
+        .delete_security_group()
+        .group_id(security_group_id)
+        .send()
+        .await
+        .map_err(Ec2CliError::ec2)?;
+
+    Ok(())
+}
+
 /// Launch a new EC2 instance
 pub async fn launch_instance(
     clients: &AwsClients,
     infra: &Infrastructure,
+    security_group_id: &str,
     profile: &Profile,
     name: &str,
     user_data: &str,
@@ -68,7 +123,7 @@ pub async fn launch_instance(
         .min_count(1)
         .max_count(1)
         .subnet_id(&infra.subnet_id)
-        .security_group_ids(&infra.security_group_id)
+        .security_group_ids(security_group_id)
         .iam_instance_profile(
             aws_sdk_ec2::types::IamInstanceProfileSpecification::builder()
                 .arn(&infra.instance_profile_arn)

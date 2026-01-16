@@ -1,9 +1,11 @@
 use aws_config::BehaviorVersion;
+use aws_sdk_ec2::types::Filter;
 use aws_sdk_ec2::Client as Ec2Client;
 use aws_sdk_iam::Client as IamClient;
 use aws_sdk_ssm::Client as SsmClient;
 use aws_sdk_sts::Client as StsClient;
 
+use crate::config::Settings;
 use crate::{Ec2CliError, Result};
 
 /// AWS client wrapper holding all service clients
@@ -18,8 +20,22 @@ pub struct AwsClients {
 }
 
 impl AwsClients {
-    /// Create new AWS clients from default configuration
+    /// Create new AWS clients, using region from settings if configured
     pub async fn new() -> Result<Self> {
+        // Check if settings has a region override
+        if let Ok(settings) = Settings::load() {
+            if let Some(ref region) = settings.region {
+                return Self::with_region(region).await;
+            }
+        }
+
+        // Fall back to default configuration
+        Self::new_without_settings().await
+    }
+
+    /// Create new AWS clients from default configuration (ignoring settings)
+    /// Used during config init to get the AWS default region
+    pub async fn new_without_settings() -> Result<Self> {
         let config = aws_config::defaults(BehaviorVersion::latest())
             .load()
             .await;
@@ -39,7 +55,7 @@ impl AwsClients {
             .get_caller_identity()
             .send()
             .await
-            .map_err(|e| Ec2CliError::AwsCredentials)?;
+            .map_err(|_| Ec2CliError::AwsCredentials)?;
 
         let account_id = identity
             .account()
@@ -73,7 +89,7 @@ impl AwsClients {
             .get_caller_identity()
             .send()
             .await
-            .map_err(|e| Ec2CliError::AwsCredentials)?;
+            .map_err(|_| Ec2CliError::AwsCredentials)?;
 
         let account_id = identity
             .account()
@@ -129,4 +145,26 @@ pub fn create_tags(name: &str, custom_tags: &std::collections::HashMap<String, S
     }
 
     tags
+}
+
+/// Get the default VPC ID for the current region
+pub async fn get_default_vpc(clients: &AwsClients) -> Result<String> {
+    let vpcs = clients
+        .ec2
+        .describe_vpcs()
+        .filters(
+            Filter::builder()
+                .name("is-default")
+                .values("true")
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(Ec2CliError::ec2)?;
+
+    vpcs.vpcs()
+        .first()
+        .and_then(|v| v.vpc_id())
+        .map(String::from)
+        .ok_or(Ec2CliError::NoDefaultVpc)
 }

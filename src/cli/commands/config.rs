@@ -1,8 +1,9 @@
 use std::process::Command;
 
-use dialoguer::Input;
+use aws_sdk_ec2::types::Filter;
+use dialoguer::{Input, Select};
 
-use crate::aws::client::AwsClients;
+use crate::aws::client::{get_default_vpc, AwsClients};
 use crate::config::Settings;
 use crate::git::{check_ssh_config, generate_ssh_config_block, SshConfigStatus};
 use crate::profile::ProfileLoader;
@@ -36,20 +37,22 @@ pub async fn init() -> Result<()> {
         }
     }
 
-    // Check AWS Credentials
+    // Check AWS Credentials and get default region
     print!("  AWS Credentials: ");
-    match AwsClients::new().await {
+    let aws_default_region = match AwsClients::new_without_settings().await {
         Ok(clients) => {
             println!("OK");
             println!("    Region: {}", clients.region);
             println!("    Account: {}", clients.account_id);
+            Some(clients.region)
         }
         Err(_) => {
             println!("MISSING/INVALID");
             println!("    Configure with: aws configure");
             all_ok = false;
+            None
         }
-    }
+    };
 
     // Check SSH Config
     print!("  SSH Config: ");
@@ -84,48 +87,212 @@ pub async fn init() -> Result<()> {
         }
     }
 
-    // Check Username tag configuration
-    print!("  Username tag: ");
-    let mut settings = Settings::load().unwrap_or_default();
-    if settings.has_username_tag() {
-        println!("OK ({})", settings.tags.get("Username").unwrap());
-    } else {
-        println!("NOT SET");
-        println!("    Setting Username tag for resource identification...");
+    println!();
 
+    // If prerequisites failed, stop here
+    if !all_ok {
+        return Err(Ec2CliError::Prerequisites(
+            "Some prerequisites are not met".to_string(),
+        ));
+    }
+
+    // Load existing settings
+    let mut settings = Settings::load().unwrap_or_default();
+
+    println!("Configure ec2-cli settings:\n");
+
+    // Configure region
+    let default_region = settings
+        .region
+        .clone()
+        .or(aws_default_region)
+        .unwrap_or_else(|| "us-east-1".to_string());
+
+    let region: String = Input::new()
+        .with_prompt("  Region")
+        .default(default_region)
+        .interact_text()
+        .map_err(|e| Ec2CliError::Config(format!("Failed to read input: {}", e)))?;
+
+    // Validate region format
+    Settings::validate_region(&region)?;
+
+    settings.region = Some(region.clone());
+
+    // Create clients with the selected region
+    let clients = AwsClients::with_region(&region).await.map_err(|e| {
+        Ec2CliError::Config(format!("Failed to connect to AWS in region '{}': {}", region, e))
+    })?;
+
+    // Configure VPC
+    let default_vpc_id = get_default_vpc(&clients).await.ok();
+    let current_vpc = settings.vpc_id.clone().or(default_vpc_id.clone());
+
+    let vpc_prompt = if let Some(ref vpc) = current_vpc {
+        format!("  VPC [{}]", vpc)
+    } else {
+        "  VPC".to_string()
+    };
+
+    let vpc_input: String = Input::new()
+        .with_prompt(&vpc_prompt)
+        .default(current_vpc.unwrap_or_default())
+        .allow_empty(false)
+        .interact_text()
+        .map_err(|e| Ec2CliError::Config(format!("Failed to read input: {}", e)))?;
+
+    // Validate VPC exists
+    let vpc_id = if vpc_input.is_empty() {
+        default_vpc_id.clone().ok_or(Ec2CliError::NoDefaultVpc)?
+    } else {
+        // Validate format before API call
+        Settings::validate_vpc_id(&vpc_input)?;
+        validate_vpc(&clients, &vpc_input).await?;
+        vpc_input
+    };
+
+    // Store None if using default VPC, otherwise store the VPC ID
+    settings.vpc_id = if Some(&vpc_id) == default_vpc_id.as_ref() {
+        None
+    } else {
+        Some(vpc_id.clone())
+    };
+
+    // Configure subnet - list available subnets in the VPC
+    let subnets = list_subnets(&clients, &vpc_id).await?;
+    if subnets.is_empty() {
+        return Err(Ec2CliError::NoSubnetsInVpc(vpc_id));
+    }
+
+    let subnet_options: Vec<String> = subnets
+        .iter()
+        .map(|s| {
+            format!(
+                "{} ({}, {})",
+                s.subnet_id,
+                s.availability_zone,
+                s.cidr_block
+            )
+        })
+        .collect();
+
+    // Find current selection index
+    let current_index = settings
+        .subnet_id
+        .as_ref()
+        .and_then(|sid| subnets.iter().position(|s| &s.subnet_id == sid))
+        .unwrap_or(0);
+
+    println!();
+    let selection = Select::new()
+        .with_prompt("  Select subnet")
+        .items(&subnet_options)
+        .default(current_index)
+        .interact()
+        .map_err(|e| Ec2CliError::Config(format!("Failed to read input: {}", e)))?;
+
+    settings.subnet_id = Some(subnets[selection].subnet_id.clone());
+
+    // Configure Username tag
+    println!();
+    if settings.has_username_tag() {
+        println!(
+            "  Username tag: {} (already configured)",
+            settings.tags.get("Username").unwrap()
+        );
+    } else {
         let username: String = Input::new()
-            .with_prompt("    Enter your username")
+            .with_prompt("  Enter your username (for resource tagging)")
             .interact_text()
             .map_err(|e| Ec2CliError::Config(format!("Failed to read input: {}", e)))?;
 
-        if let Err(e) = settings.set_tag("Username", &username) {
-            println!("    Error: {}", e);
-            all_ok = false;
-        } else {
-            settings.save()?;
-            println!("    Username tag set to: {}", username);
-        }
+        settings.set_tag("Username", &username)?;
     }
+
+    // Save settings
+    settings.save()?;
 
     println!();
+    println!("Configuration saved! You can now use 'ec2-cli up' to launch an instance.");
 
-    if all_ok {
-        println!("All prerequisites met! You can now use 'ec2-cli up' to launch an instance.");
-        Ok(())
-    } else {
-        Err(Ec2CliError::Prerequisites(
-            "Some prerequisites are not met".to_string(),
-        ))
+    Ok(())
+}
+
+/// Subnet info for display
+struct SubnetInfo {
+    subnet_id: String,
+    availability_zone: String,
+    cidr_block: String,
+}
+
+/// Validate that a VPC exists
+async fn validate_vpc(clients: &AwsClients, vpc_id: &str) -> Result<()> {
+    let vpcs = clients
+        .ec2
+        .describe_vpcs()
+        .vpc_ids(vpc_id)
+        .send()
+        .await
+        .map_err(Ec2CliError::ec2)?;
+
+    if vpcs.vpcs().is_empty() {
+        return Err(Ec2CliError::VpcNotFound(vpc_id.to_string()));
     }
+
+    Ok(())
+}
+
+/// List subnets in a VPC
+async fn list_subnets(clients: &AwsClients, vpc_id: &str) -> Result<Vec<SubnetInfo>> {
+    let subnets = clients
+        .ec2
+        .describe_subnets()
+        .filters(Filter::builder().name("vpc-id").values(vpc_id).build())
+        .send()
+        .await
+        .map_err(Ec2CliError::ec2)?;
+
+    Ok(subnets
+        .subnets()
+        .iter()
+        .map(|s| SubnetInfo {
+            subnet_id: s.subnet_id().unwrap_or_default().to_string(),
+            availability_zone: s.availability_zone().unwrap_or_default().to_string(),
+            cidr_block: s.cidr_block().unwrap_or_default().to_string(),
+        })
+        .collect())
 }
 
 pub fn show() -> Result<()> {
     let loader = ProfileLoader::new();
+    let settings = Settings::load().unwrap_or_default();
 
     println!("Configuration:");
     println!();
 
+    // AWS settings
+    println!("AWS settings:");
+    println!(
+        "  Region: {}",
+        settings
+            .region
+            .as_deref()
+            .unwrap_or("(from AWS config)")
+    );
+    println!(
+        "  VPC: {}",
+        settings.vpc_id.as_deref().unwrap_or("(default VPC)")
+    );
+    println!(
+        "  Subnet: {}",
+        settings
+            .subnet_id
+            .as_deref()
+            .unwrap_or("(not configured - run 'ec2-cli config init')")
+    );
+
     // Profile directories
+    println!();
     println!("Profile directories:");
     if let Some(global_dir) = loader.global_dir() {
         println!("  Global: {}", global_dir.display());
@@ -163,18 +330,11 @@ pub fn show() -> Result<()> {
     // Custom tags
     println!();
     println!("Custom tags:");
-    match Settings::load() {
-        Ok(settings) => {
-            if settings.tags.is_empty() {
-                println!("  (none configured)");
-            } else {
-                for (key, value) in &settings.tags {
-                    println!("  {}={}", key, value);
-                }
-            }
-        }
-        Err(e) => {
-            println!("  Error loading settings: {}", e);
+    if settings.tags.is_empty() {
+        println!("  (none configured)");
+    } else {
+        for (key, value) in &settings.tags {
+            println!("  {}={}", key, value);
         }
     }
 

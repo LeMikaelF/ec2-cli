@@ -1,11 +1,15 @@
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::aws::client::AwsClients;
-use crate::aws::ec2::instance::{launch_instance, wait_for_running, wait_for_ssm_ready};
+use crate::aws::ec2::instance::{
+    create_instance_security_group, delete_security_group, launch_instance, wait_for_running,
+    wait_for_ssm_ready,
+};
 use crate::aws::infrastructure::Infrastructure;
+use crate::config::Settings;
 use crate::profile::ProfileLoader;
 use crate::user_data::{generate_user_data, validate_project_name};
-use crate::{Ec2CliError, Result};
+use crate::Result;
 
 /// Get the SSH username (always ubuntu for Ubuntu AMIs)
 fn get_username_for_ami(_ami_type: &str) -> &'static str {
@@ -41,10 +45,21 @@ pub async fn execute(
     let clients = AwsClients::new().await?;
     spinner.finish_with_message("Connected to AWS");
 
-    // Get or create infrastructure
+    // Get or create infrastructure (VPC, subnet from config; IAM resources created if needed)
     let spinner = create_spinner("Checking infrastructure...");
     let infra = Infrastructure::get_or_create(&clients).await?;
     spinner.finish_with_message("Infrastructure ready");
+
+    // Load custom tags for security group
+    let custom_tags = Settings::load()
+        .map(|s| s.tags)
+        .unwrap_or_default();
+
+    // Create per-instance security group
+    let spinner = create_spinner("Creating security group...");
+    let security_group_id =
+        create_instance_security_group(&clients, &infra.vpc_id, &name, &custom_tags).await?;
+    spinner.finish_with_message("Security group created");
 
     // Get project name from current directory (for git repo setup)
     let project_name = std::env::current_dir()
@@ -59,10 +74,29 @@ pub async fn execute(
     // Generate user data
     let user_data = generate_user_data(&profile, project_name.as_deref(), username)?;
 
-    // Launch instance
+    // Launch instance (cleanup security group on failure)
     let spinner = create_spinner("Launching instance...");
-    let instance_id = launch_instance(&clients, &infra, &profile, &name, &user_data).await?;
-    spinner.finish_with_message(format!("Instance launched: {}", instance_id));
+    let instance_id = match launch_instance(
+        &clients,
+        &infra,
+        &security_group_id,
+        &profile,
+        &name,
+        &user_data,
+    )
+    .await
+    {
+        Ok(id) => {
+            spinner.finish_with_message(format!("Instance launched: {}", id));
+            id
+        }
+        Err(e) => {
+            spinner.finish_with_message("Launch failed");
+            // Cleanup security group on launch failure
+            let _ = delete_security_group(&clients, &security_group_id).await;
+            return Err(e);
+        }
+    };
 
     // Wait for instance to be running
     let spinner = create_spinner("Waiting for instance to start...");
@@ -74,8 +108,15 @@ pub async fn execute(
     wait_for_ssm_ready(&clients, &instance_id, 600).await?;
     spinner.finish_with_message("SSM agent ready");
 
-    // Save state with username
-    crate::state::save_instance(&name, &instance_id, &profile.name, &clients.region, username)?;
+    // Save state with username and security group ID
+    crate::state::save_instance(
+        &name,
+        &instance_id,
+        &profile.name,
+        &clients.region,
+        username,
+        &security_group_id,
+    )?;
 
     // Create link file if requested
     if link {

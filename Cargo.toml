@@ -42,3 +42,4 @@ directories = "5.0"
 petname = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
+uuid = { version = "1.11", features = ["v4"] }

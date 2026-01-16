@@ -15,6 +15,18 @@ pub struct Settings {
     /// Custom tags to apply to all AWS resources
     #[serde(default)]
     pub tags: HashMap<String, String>,
+
+    /// AWS region override (None = use AWS default from environment/config)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+
+    /// VPC ID to use (None = use default VPC)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+
+    /// Subnet ID to launch instances in
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet_id: Option<String>,
 }
 
 impl Settings {
@@ -127,6 +139,62 @@ impl Settings {
     /// Check if Username tag is configured
     pub fn has_username_tag(&self) -> bool {
         self.tags.contains_key("Username")
+    }
+
+    /// Validate AWS region format (e.g., us-east-1, eu-west-2)
+    pub fn validate_region(region: &str) -> Result<()> {
+        // Simple validation: regions are like "us-east-1", "eu-west-2", "ap-southeast-1"
+        let parts: Vec<&str> = region.split('-').collect();
+        if parts.len() < 3 {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid AWS region format: '{}'. Expected format like 'us-east-1'",
+                region
+            )));
+        }
+        // Check that the last part is a number
+        if parts.last().map(|p| p.parse::<u32>().is_err()).unwrap_or(true) {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid AWS region format: '{}'. Expected format like 'us-east-1'",
+                region
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate VPC ID format (vpc-xxxxxxxx or vpc-xxxxxxxxxxxxxxxxx)
+    pub fn validate_vpc_id(vpc_id: &str) -> Result<()> {
+        if !vpc_id.starts_with("vpc-") {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid VPC ID format: '{}'. Must start with 'vpc-'",
+                vpc_id
+            )));
+        }
+        let suffix = &vpc_id[4..];
+        if suffix.len() < 8 || !suffix.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid VPC ID format: '{}'. Expected format like 'vpc-12345678'",
+                vpc_id
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate subnet ID format (subnet-xxxxxxxx or subnet-xxxxxxxxxxxxxxxxx)
+    pub fn validate_subnet_id(subnet_id: &str) -> Result<()> {
+        if !subnet_id.starts_with("subnet-") {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid subnet ID format: '{}'. Must start with 'subnet-'",
+                subnet_id
+            )));
+        }
+        let suffix = &subnet_id[7..];
+        if suffix.len() < 8 || !suffix.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Ec2CliError::Config(format!(
+                "Invalid subnet ID format: '{}'. Expected format like 'subnet-12345678'",
+                subnet_id
+            )));
+        }
+        Ok(())
     }
 }
 

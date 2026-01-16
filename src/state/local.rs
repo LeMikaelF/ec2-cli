@@ -26,6 +26,9 @@ pub struct InstanceState {
     /// SSH username for the instance (always "ubuntu" for Ubuntu AMIs)
     #[serde(default = "default_username")]
     pub username: String,
+    /// Security group ID for cleanup on termination
+    #[serde(default)]
+    pub security_group_id: Option<String>,
 }
 
 fn default_username() -> String {
@@ -81,7 +84,15 @@ impl State {
     }
 
     /// Add or update an instance
-    pub fn add_instance(&mut self, name: &str, instance_id: &str, profile: &str, region: &str, username: &str) {
+    pub fn add_instance(
+        &mut self,
+        name: &str,
+        instance_id: &str,
+        profile: &str,
+        region: &str,
+        username: &str,
+        security_group_id: &str,
+    ) {
         self.instances.insert(
             name.to_string(),
             InstanceState {
@@ -90,6 +101,7 @@ impl State {
                 region: region.to_string(),
                 created_at: Utc::now(),
                 username: username.to_string(),
+                security_group_id: Some(security_group_id.to_string()),
             },
         );
     }
@@ -124,9 +136,16 @@ fn state_file_path() -> Result<PathBuf> {
 }
 
 /// Save an instance to state (convenience function)
-pub fn save_instance(name: &str, instance_id: &str, profile: &str, region: &str, username: &str) -> Result<()> {
+pub fn save_instance(
+    name: &str,
+    instance_id: &str,
+    profile: &str,
+    region: &str,
+    username: &str,
+    security_group_id: &str,
+) -> Result<()> {
     let mut state = State::load()?;
-    state.add_instance(name, instance_id, profile, region, username);
+    state.add_instance(name, instance_id, profile, region, username, security_group_id);
     state.save()
 }
 
@@ -198,9 +217,13 @@ mod tests {
     fn test_state_operations() {
         let mut state = State::default();
 
-        state.add_instance("test-instance", "i-123456", "default", "us-west-2", "ubuntu");
+        state.add_instance("test-instance", "i-123456", "default", "us-west-2", "ubuntu", "sg-12345678");
         assert!(state.get_instance("test-instance").is_some());
         assert_eq!(state.get_instance("test-instance").unwrap().username, "ubuntu");
+        assert_eq!(
+            state.get_instance("test-instance").unwrap().security_group_id,
+            Some("sg-12345678".to_string())
+        );
 
         let removed = state.remove_instance("test-instance");
         assert!(removed.is_some());
@@ -211,7 +234,7 @@ mod tests {
     fn test_state_with_ubuntu_user() {
         let mut state = State::default();
 
-        state.add_instance("ubuntu-instance", "i-789", "ubuntu-profile", "us-east-1", "ubuntu");
+        state.add_instance("ubuntu-instance", "i-789", "ubuntu-profile", "us-east-1", "ubuntu", "sg-abc");
         let instance = state.get_instance("ubuntu-instance").unwrap();
         assert_eq!(instance.username, "ubuntu");
     }

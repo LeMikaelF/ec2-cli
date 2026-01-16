@@ -91,6 +91,21 @@ pub enum Ec2CliError {
     #[error("Prerequisites not met: {0}")]
     Prerequisites(String),
 
+    #[error("No default VPC found in region. Please specify a VPC ID in config.")]
+    NoDefaultVpc,
+
+    #[error("VPC not found: {0}")]
+    VpcNotFound(String),
+
+    #[error("Subnet not found: {0}")]
+    SubnetNotFound(String),
+
+    #[error("No subnets found in VPC: {0}")]
+    NoSubnetsInVpc(String),
+
+    #[error("Subnet must be configured. Run 'ec2-cli config init' first.")]
+    SubnetNotConfigured,
+
     // File/IO Errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
