@@ -1,6 +1,7 @@
 # ec2-cli
 
-Ephemeral EC2 Development Environment Manager - Launch temporary, private EC2 instances for remote development with automatic Docker and Rust toolchain setup.
+Ephemeral EC2 Development Environment Manager - Launch temporary, private EC2 instances for remote development with
+automatic Docker and Rust toolchain setup.
 
 ## Features
 
@@ -54,33 +55,35 @@ cargo install --path .
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `ec2-cli up [--profile NAME] [--name NAME] [--link]` | Launch a new instance |
-| `ec2-cli destroy <NAME> [--force]` | Terminate an instance |
-| `ec2-cli ssh <NAME> [-c COMMAND]` | SSH into instance via SSM |
-| `ec2-cli scp <NAME> <SRC> <DEST> [--recursive]` | Copy files to/from instance |
-| `ec2-cli push <NAME> [--branch BRANCH]` | Push code to instance bare repo |
-| `ec2-cli pull <NAME> [--branch BRANCH]` | Pull from instance bare repo |
-| `ec2-cli status [NAME]` | Show instance status |
-| `ec2-cli list [--all]` | List managed instances |
-| `ec2-cli logs <NAME> [--follow]` | View cloud-init logs |
-| `ec2-cli config init` | Initialize config and check prerequisites |
-| `ec2-cli config show` | Show current configuration |
-| `ec2-cli config tags set <KEY> <VALUE>` | Set a custom resource tag |
-| `ec2-cli config tags list` | List configured tags |
-| `ec2-cli config tags remove <KEY>` | Remove a custom tag |
-| `ec2-cli profile list` | List available profiles |
-| `ec2-cli profile show <NAME>` | Show profile details |
-| `ec2-cli profile validate <NAME>` | Validate a profile |
+| Command                                              | Description                               |
+|------------------------------------------------------|-------------------------------------------|
+| `ec2-cli up [--profile NAME] [--name NAME] [--link]` | Launch a new instance                     |
+| `ec2-cli destroy <NAME> [--force]`                   | Terminate an instance                     |
+| `ec2-cli ssh <NAME> [-c COMMAND]`                    | SSH into instance via SSM                 |
+| `ec2-cli scp <NAME> <SRC> <DEST> [--recursive]`      | Copy files to/from instance               |
+| `ec2-cli push <NAME> [--branch BRANCH]`              | Push code to instance bare repo           |
+| `ec2-cli pull <NAME> [--branch BRANCH]`              | Pull from instance bare repo              |
+| `ec2-cli status [NAME]`                              | Show instance status                      |
+| `ec2-cli list [--all]`                               | List managed instances                    |
+| `ec2-cli logs <NAME> [--follow]`                     | View cloud-init logs                      |
+| `ec2-cli config init`                                | Initialize config and check prerequisites |
+| `ec2-cli config show`                                | Show current configuration                |
+| `ec2-cli config tags set <KEY> <VALUE>`              | Set a custom resource tag                 |
+| `ec2-cli config tags list`                           | List configured tags                      |
+| `ec2-cli config tags remove <KEY>`                   | Remove a custom tag                       |
+| `ec2-cli profile list`                               | List available profiles                   |
+| `ec2-cli profile show <NAME>`                        | Show profile details                      |
+| `ec2-cli profile validate <NAME>`                    | Validate a profile                        |
 
 ## Profiles
 
 Profiles define instance configuration. Create profiles in:
+
 - Global: `~/.config/ec2-cli/profiles/`
 - Local: `.ec2-cli/profiles/` (project-specific)
 
 Example profile (`~/.config/ec2-cli/profiles/large.json5`):
+
 ```json5
 {
   "name": "large",
@@ -98,13 +101,24 @@ Example profile (`~/.config/ec2-cli/profiles/large.json5`):
     }
   },
   "packages": {
-    "system": ["build-essential", "libssl-dev", "pkg-config", "git"],
+    "system": [
+      "build-essential",
+      "libssl-dev",
+      "pkg-config",
+      "git"
+    ],
     "rust": {
       "enabled": true,
       "channel": "stable",
-      "components": ["rustfmt", "clippy"]
+      "components": [
+        "rustfmt",
+        "clippy"
+      ]
     },
-    "cargo": ["cargo-watch", "cargo-edit"]
+    "cargo": [
+      "cargo-watch",
+      "cargo-edit"
+    ]
   },
   "environment": {
     "RUST_BACKTRACE": "1"
@@ -113,18 +127,21 @@ Example profile (`~/.config/ec2-cli/profiles/large.json5`):
 ```
 
 Supported AMI types:
+
 - `ubuntu-24.04` (default)
 - `ubuntu-22.04`
 
 ## Custom Tags
 
 All AWS resources are tagged with:
+
 - `ec2-cli:managed=true` (identifies managed resources)
 - `ec2-cli:name=<name>` (instance/resource name)
 - `Name=ec2-cli-<name>` (AWS console display)
 - Custom tags from `ec2-cli config tags set`
 
 Set your Username tag for resource identification:
+
 ```bash
 ec2-cli config tags set Username myusername
 ```
