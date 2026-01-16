@@ -1,6 +1,9 @@
 use std::process::Command;
 
+use dialoguer::Input;
+
 use crate::aws::client::AwsClients;
+use crate::config::Settings;
 use crate::git::{check_ssh_config, generate_ssh_config_block, SshConfigStatus};
 use crate::profile::ProfileLoader;
 use crate::{Ec2CliError, Result};
@@ -81,6 +84,29 @@ pub async fn init() -> Result<()> {
         }
     }
 
+    // Check Username tag configuration
+    print!("  Username tag: ");
+    let mut settings = Settings::load().unwrap_or_default();
+    if settings.has_username_tag() {
+        println!("OK ({})", settings.tags.get("Username").unwrap());
+    } else {
+        println!("NOT SET");
+        println!("    Setting Username tag for resource identification...");
+
+        let username: String = Input::new()
+            .with_prompt("    Enter your username")
+            .interact_text()
+            .map_err(|e| Ec2CliError::Config(format!("Failed to read input: {}", e)))?;
+
+        if let Err(e) = settings.set_tag("Username", &username) {
+            println!("    Error: {}", e);
+            all_ok = false;
+        } else {
+            settings.save()?;
+            println!("    Username tag set to: {}", username);
+        }
+    }
+
     println!();
 
     if all_ok {
@@ -132,6 +158,65 @@ pub fn show() -> Result<()> {
         Err(e) => {
             println!("  Error listing profiles: {}", e);
         }
+    }
+
+    // Custom tags
+    println!();
+    println!("Custom tags:");
+    match Settings::load() {
+        Ok(settings) => {
+            if settings.tags.is_empty() {
+                println!("  (none configured)");
+            } else {
+                for (key, value) in &settings.tags {
+                    println!("  {}={}", key, value);
+                }
+            }
+        }
+        Err(e) => {
+            println!("  Error loading settings: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Set a custom tag
+pub fn tags_set(key: &str, value: &str) -> Result<()> {
+    let mut settings = Settings::load()?;
+    settings.set_tag(key, value)?;
+    settings.save()?;
+    println!("Tag '{}' set to '{}'", key, value);
+    Ok(())
+}
+
+/// List all custom tags
+pub fn tags_list() -> Result<()> {
+    let settings = Settings::load()?;
+
+    if settings.tags.is_empty() {
+        println!("No custom tags configured.");
+        println!();
+        println!("Set a tag with: ec2-cli config tags set <KEY> <VALUE>");
+    } else {
+        println!("Custom tags:");
+        for (key, value) in &settings.tags {
+            println!("  {}={}", key, value);
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove a custom tag
+pub fn tags_remove(key: &str) -> Result<()> {
+    let mut settings = Settings::load()?;
+
+    if settings.remove_tag(key).is_some() {
+        settings.save()?;
+        println!("Tag '{}' removed", key);
+    } else {
+        println!("Tag '{}' not found", key);
     }
 
     Ok(())

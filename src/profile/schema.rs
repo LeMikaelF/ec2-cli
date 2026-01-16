@@ -60,7 +60,7 @@ impl Default for AmiConfig {
 }
 
 fn default_ami_type() -> String {
-    "amazon-linux-2023".to_string()
+    "ubuntu-24.04".to_string()
 }
 
 fn default_architecture() -> String {
@@ -161,9 +161,8 @@ impl Profile {
             instance: InstanceConfig::default(),
             packages: PackageConfig {
                 system: vec![
-                    "gcc".to_string(),
-                    "gcc-c++".to_string(),
-                    "openssl-devel".to_string(),
+                    "build-essential".to_string(),
+                    "libssl-dev".to_string(),
                     "pkg-config".to_string(),
                     "git".to_string(),
                 ],
@@ -215,7 +214,7 @@ impl Profile {
             )));
         }
 
-        let valid_ami_types = ["amazon-linux-2023", "amazon-linux-2", "ubuntu-22.04", "ubuntu-24.04"];
+        let valid_ami_types = ["ubuntu-22.04", "ubuntu-24.04"];
         if self.instance.ami.id.is_none()
             && !valid_ami_types.contains(&self.instance.ami.ami_type.as_str())
         {

@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use aws_sdk_ec2::types::{
     Filter, IpPermission, IpRange, SecurityGroup, Subnet, Tag, Vpc, VpcEndpoint,
 };
 
+use crate::config::Settings;
 use crate::{Ec2CliError, Result};
 
 use super::client::{create_tags, AwsClients, MANAGED_TAG_KEY, MANAGED_TAG_VALUE};
@@ -127,6 +130,11 @@ impl Infrastructure {
     async fn create_new(clients: &AwsClients) -> Result<Self> {
         println!("Creating ec2-cli infrastructure...");
 
+        // Load custom tags from settings
+        let custom_tags = Settings::load()
+            .map(|s| s.tags)
+            .unwrap_or_default();
+
         // Create VPC
         println!("  Creating VPC...");
         let vpc = clients
@@ -136,7 +144,7 @@ impl Infrastructure {
             .tag_specifications(
                 aws_sdk_ec2::types::TagSpecification::builder()
                     .resource_type(aws_sdk_ec2::types::ResourceType::Vpc)
-                    .set_tags(Some(create_tags("infrastructure")))
+                    .set_tags(Some(create_tags("infrastructure", &custom_tags)))
                     .build(),
             )
             .send()
@@ -169,7 +177,7 @@ impl Infrastructure {
             .tag_specifications(
                 aws_sdk_ec2::types::TagSpecification::builder()
                     .resource_type(aws_sdk_ec2::types::ResourceType::Subnet)
-                    .set_tags(Some(create_tags("infrastructure")))
+                    .set_tags(Some(create_tags("infrastructure", &custom_tags)))
                     .build(),
             )
             .send()
@@ -189,7 +197,7 @@ impl Infrastructure {
             .tag_specifications(
                 aws_sdk_ec2::types::TagSpecification::builder()
                     .resource_type(aws_sdk_ec2::types::ResourceType::SecurityGroup)
-                    .set_tags(Some(create_tags("infrastructure")))
+                    .set_tags(Some(create_tags("infrastructure", &custom_tags)))
                     .build(),
             )
             .send()
@@ -231,7 +239,7 @@ impl Infrastructure {
 
         // Create VPC endpoints
         println!("  Creating VPC endpoints...");
-        create_vpc_endpoints(clients, &vpc_id, &subnet_id, &security_group_id).await?;
+        create_vpc_endpoints(clients, &vpc_id, &subnet_id, &security_group_id, &custom_tags).await?;
 
         // Create IAM role and instance profile
         println!("  Creating IAM role and instance profile...");
@@ -256,6 +264,7 @@ async fn create_vpc_endpoints(
     vpc_id: &str,
     subnet_id: &str,
     security_group_id: &str,
+    custom_tags: &HashMap<String, String>,
 ) -> Result<()> {
     let endpoints = [
         "com.amazonaws.{region}.ssm",
@@ -297,7 +306,7 @@ async fn create_vpc_endpoints(
             .tag_specifications(
                 aws_sdk_ec2::types::TagSpecification::builder()
                     .resource_type(aws_sdk_ec2::types::ResourceType::VpcEndpoint)
-                    .set_tags(Some(create_tags("infrastructure")))
+                    .set_tags(Some(create_tags("infrastructure", &custom_tags)))
                     .build(),
             )
             .send()
@@ -346,7 +355,7 @@ async fn create_vpc_endpoints(
                 .tag_specifications(
                     aws_sdk_ec2::types::TagSpecification::builder()
                         .resource_type(aws_sdk_ec2::types::ResourceType::VpcEndpoint)
-                        .set_tags(Some(create_tags("infrastructure")))
+                        .set_tags(Some(create_tags("infrastructure", &custom_tags)))
                         .build(),
                 )
                 .send()

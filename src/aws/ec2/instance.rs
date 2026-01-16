@@ -4,6 +4,7 @@ use aws_sdk_ec2::types::{
     InstanceType as AwsInstanceType, Tag,
 };
 
+use crate::config::Settings;
 use crate::profile::Profile;
 use crate::{Ec2CliError, Result};
 
@@ -18,6 +19,11 @@ pub async fn launch_instance(
     name: &str,
     user_data: &str,
 ) -> Result<String> {
+    // Load custom tags from settings
+    let custom_tags = Settings::load()
+        .map(|s| s.tags)
+        .unwrap_or_default();
+
     // Look up AMI
     let ami_id = lookup_ami(clients, profile).await?;
 
@@ -41,8 +47,9 @@ pub async fn launch_instance(
         ebs_builder = ebs_builder.throughput(throughput as i32);
     }
 
+    // Ubuntu AMIs use /dev/sda1 as root device (unlike Amazon Linux which uses /dev/xvda)
     let block_device = BlockDeviceMapping::builder()
-        .device_name("/dev/xvda")
+        .device_name("/dev/sda1")
         .ebs(ebs_builder.build())
         .build();
 
@@ -79,7 +86,7 @@ pub async fn launch_instance(
         .tag_specifications(
             aws_sdk_ec2::types::TagSpecification::builder()
                 .resource_type(aws_sdk_ec2::types::ResourceType::Instance)
-                .set_tags(Some(create_tags(name)))
+                .set_tags(Some(create_tags(name, &custom_tags)))
                 .build(),
         )
         .send()
@@ -108,51 +115,24 @@ pub async fn lookup_ami(clients: &AwsClients, profile: &Profile) -> Result<Strin
 
     let ami_config = &profile.instance.ami;
 
-    // Build filters based on AMI type
+    // Build filters based on AMI type (Ubuntu only)
+    let arch = match ami_config.architecture.as_str() {
+        "arm64" => "arm64",
+        _ => "amd64",
+    };
+
     let (owner, name_pattern) = match ami_config.ami_type.as_str() {
-        "amazon-linux-2023" => {
-            let arch = match ami_config.architecture.as_str() {
-                "arm64" => "arm64",
-                _ => "x86_64",
-            };
-            (
-                "amazon",
-                format!("al2023-ami-2023.*-kernel-*-{}", arch),
-            )
-        }
-        "amazon-linux-2" => {
-            let arch = match ami_config.architecture.as_str() {
-                "arm64" => "arm64",
-                _ => "x86_64",
-            };
-            (
-                "amazon",
-                format!("amzn2-ami-hvm-*-{}-gp2", arch),
-            )
-        }
-        "ubuntu-22.04" => {
-            let arch = match ami_config.architecture.as_str() {
-                "arm64" => "arm64",
-                _ => "amd64",
-            };
-            (
-                "099720109477", // Canonical
-                format!("ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-{}-server-*", arch),
-            )
-        }
-        "ubuntu-24.04" => {
-            let arch = match ami_config.architecture.as_str() {
-                "arm64" => "arm64",
-                _ => "amd64",
-            };
-            (
-                "099720109477", // Canonical
-                format!("ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-{}-server-*", arch),
-            )
-        }
+        "ubuntu-22.04" => (
+            "099720109477", // Canonical
+            format!("ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-{}-server-*", arch),
+        ),
+        "ubuntu-24.04" => (
+            "099720109477", // Canonical
+            format!("ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-{}-server-*", arch),
+        ),
         other => {
             return Err(Ec2CliError::ProfileValidation(format!(
-                "Unknown AMI type: {}",
+                "Unknown AMI type: {}. Supported: ubuntu-22.04, ubuntu-24.04",
                 other
             )));
         }

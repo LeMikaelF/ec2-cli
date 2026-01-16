@@ -12,6 +12,7 @@ pub fn execute(name: String, follow: bool) -> Result<()> {
         .ok_or_else(|| Ec2CliError::InstanceNotFound(name.clone()))?;
 
     let instance_id = &instance_state.instance_id;
+    let username = &instance_state.username;
 
     // Build command to view logs
     let cmd = if follow {
@@ -23,7 +24,7 @@ pub fn execute(name: String, follow: bool) -> Result<()> {
     println!("Viewing logs from {}...\n", name);
 
     let status = Command::new("ssh")
-        .arg(format!("ec2-user@{}", instance_id))
+        .arg(format!("{}@{}", username, instance_id))
         .arg(cmd)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

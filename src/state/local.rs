@@ -23,13 +23,13 @@ pub struct InstanceState {
     pub profile: String,
     pub region: String,
     pub created_at: DateTime<Utc>,
-    /// SSH username for the instance (e.g., "ec2-user" for Amazon Linux, "ubuntu" for Ubuntu)
+    /// SSH username for the instance (always "ubuntu" for Ubuntu AMIs)
     #[serde(default = "default_username")]
     pub username: String,
 }
 
 fn default_username() -> String {
-    "ec2-user".to_string()
+    "ubuntu".to_string()
 }
 
 impl State {
@@ -198,9 +198,9 @@ mod tests {
     fn test_state_operations() {
         let mut state = State::default();
 
-        state.add_instance("test-instance", "i-123456", "default", "us-west-2", "ec2-user");
+        state.add_instance("test-instance", "i-123456", "default", "us-west-2", "ubuntu");
         assert!(state.get_instance("test-instance").is_some());
-        assert_eq!(state.get_instance("test-instance").unwrap().username, "ec2-user");
+        assert_eq!(state.get_instance("test-instance").unwrap().username, "ubuntu");
 
         let removed = state.remove_instance("test-instance");
         assert!(removed.is_some());

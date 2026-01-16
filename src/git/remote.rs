@@ -18,7 +18,7 @@ pub fn add_remote(
 
     // Build remote URL for SSH via SSM
     let remote_url = format!(
-        "ec2-user@{}:/home/ec2-user/repos/{}.git",
+        "ubuntu@{}:/home/ubuntu/repos/{}.git",
         instance_id, project_name
     );
 
@@ -56,7 +56,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 /// Get the remote URL for an instance
 pub fn get_remote_url(instance_id: &str, project_name: &str) -> String {
     format!(
-        "ec2-user@{}:/home/ec2-user/repos/{}.git",
+        "ubuntu@{}:/home/ubuntu/repos/{}.git",
         instance_id, project_name
     )
 }
@@ -91,7 +91,7 @@ pub fn check_ssh_config() -> Result<SshConfigStatus> {
 pub fn generate_ssh_config_block() -> String {
     r#"# EC2 SSH via SSM Session Manager
 Host i-* mi-*
-    User ec2-user
+    User ubuntu
     ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'"
 "#
     .to_string()
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn test_get_remote_url() {
         let url = get_remote_url("i-123456", "my-project");
-        assert_eq!(url, "ec2-user@i-123456:/home/ec2-user/repos/my-project.git");
+        assert_eq!(url, "ubuntu@i-123456:/home/ubuntu/repos/my-project.git");
     }
 
     #[test]

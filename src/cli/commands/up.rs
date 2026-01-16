@@ -7,12 +7,9 @@ use crate::profile::ProfileLoader;
 use crate::user_data::{generate_user_data, validate_project_name};
 use crate::{Ec2CliError, Result};
 
-/// Get the SSH username based on AMI type
-fn get_username_for_ami(ami_type: &str) -> &'static str {
-    match ami_type {
-        "ubuntu-22.04" | "ubuntu-24.04" => "ubuntu",
-        _ => "ec2-user",
-    }
+/// Get the SSH username (always ubuntu for Ubuntu AMIs)
+fn get_username_for_ami(_ami_type: &str) -> &'static str {
+    "ubuntu"
 }
 
 pub async fn execute(

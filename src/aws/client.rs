@@ -101,9 +101,9 @@ pub const NAME_TAG_KEY: &str = "ec2-cli:name";
 /// Standard Name tag
 pub const AWS_NAME_TAG: &str = "Name";
 
-/// Create standard tags for a resource
-pub fn create_tags(name: &str) -> Vec<aws_sdk_ec2::types::Tag> {
-    vec![
+/// Create standard tags for a resource, including custom tags from settings
+pub fn create_tags(name: &str, custom_tags: &std::collections::HashMap<String, String>) -> Vec<aws_sdk_ec2::types::Tag> {
+    let mut tags = vec![
         aws_sdk_ec2::types::Tag::builder()
             .key(MANAGED_TAG_KEY)
             .value(MANAGED_TAG_VALUE)
@@ -116,5 +116,17 @@ pub fn create_tags(name: &str) -> Vec<aws_sdk_ec2::types::Tag> {
             .key(AWS_NAME_TAG)
             .value(format!("ec2-cli-{}", name))
             .build(),
-    ]
+    ];
+
+    // Add custom tags from settings
+    for (key, value) in custom_tags {
+        tags.push(
+            aws_sdk_ec2::types::Tag::builder()
+                .key(key)
+                .value(value)
+                .build(),
+        );
+    }
+
+    tags
 }

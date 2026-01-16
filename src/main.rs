@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod aws;
 mod cli;
+mod config;
 mod error;
 mod git;
 mod profile;
@@ -155,6 +156,32 @@ enum ConfigCommands {
 
     /// Show current configuration
     Show,
+
+    /// Manage custom resource tags
+    Tags {
+        #[command(subcommand)]
+        command: TagsCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum TagsCommands {
+    /// Set a custom tag (applied to all AWS resources)
+    Set {
+        /// Tag key (e.g., Username)
+        key: String,
+        /// Tag value
+        value: String,
+    },
+
+    /// List all configured tags
+    List,
+
+    /// Remove a custom tag
+    Remove {
+        /// Tag key to remove
+        key: String,
+    },
 }
 
 #[tokio::main]
@@ -286,6 +313,20 @@ async fn main() -> anyhow::Result<()> {
                 cli::commands::config::show()?;
                 Ok(())
             }
+            ConfigCommands::Tags { command } => match command {
+                TagsCommands::Set { key, value } => {
+                    cli::commands::config::tags_set(&key, &value)?;
+                    Ok(())
+                }
+                TagsCommands::List => {
+                    cli::commands::config::tags_list()?;
+                    Ok(())
+                }
+                TagsCommands::Remove { key } => {
+                    cli::commands::config::tags_remove(&key)?;
+                    Ok(())
+                }
+            },
         },
         Commands::Logs { name, follow } => {
             cli::commands::logs::execute(name, follow)?;

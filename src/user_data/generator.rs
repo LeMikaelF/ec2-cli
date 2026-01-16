@@ -85,24 +85,23 @@ pub fn generate_user_data(profile: &Profile, project_name: Option<&str>, usernam
     script.push_str("echo 'Waiting for cloud-init...'\n");
     script.push_str("cloud-init status --wait || true\n\n");
 
-    // Validate and install system packages
+    // Validate and install system packages (Ubuntu/apt-get only)
+    script.push_str("echo 'Installing system packages...'\n");
+    script.push_str("apt-get update\n");
     if !profile.packages.system.is_empty() {
         for pkg in &profile.packages.system {
             validate_shell_safe(pkg, "system package name")?;
         }
-        script.push_str("echo 'Installing system packages...'\n");
         let packages = profile.packages.system.join(" ");
-
-        // Detect package manager
-        script.push_str("if command -v dnf &> /dev/null; then\n");
-        script.push_str(&format!("    dnf install -y {}\n", packages));
-        script.push_str("elif command -v yum &> /dev/null; then\n");
-        script.push_str(&format!("    yum install -y {}\n", packages));
-        script.push_str("elif command -v apt-get &> /dev/null; then\n");
-        script.push_str("    apt-get update\n");
-        script.push_str(&format!("    apt-get install -y {}\n", packages));
-        script.push_str("fi\n\n");
+        script.push_str(&format!("apt-get install -y {}\n\n", packages));
     }
+
+    // Install Docker
+    script.push_str("echo 'Installing Docker...'\n");
+    script.push_str("apt-get install -y docker.io\n");
+    script.push_str("systemctl enable docker\n");
+    script.push_str("systemctl start docker\n");
+    script.push_str(&format!("usermod -aG docker {}\n\n", username));
 
     // Install Rust if enabled
     if profile.packages.rust.enabled {
@@ -221,22 +220,25 @@ mod tests {
     #[test]
     fn test_generate_basic_user_data() {
         let profile = Profile::default_profile();
-        let script = generate_user_data(&profile, Some("test-project"), "ec2-user").unwrap();
+        let script = generate_user_data(&profile, Some("test-project"), "ubuntu").unwrap();
 
         assert!(script.contains("#!/bin/bash"));
         assert!(script.contains("rustup"));
         assert!(script.contains("git init --bare"));
         assert!(script.contains("test-project"));
         assert!(script.contains(".ec2-cli-ready"));
+        assert!(script.contains("docker.io"));
+        assert!(script.contains("usermod -aG docker ubuntu"));
     }
 
     #[test]
     fn test_generate_without_project() {
         let profile = Profile::default_profile();
-        let script = generate_user_data(&profile, None, "ec2-user").unwrap();
+        let script = generate_user_data(&profile, None, "ubuntu").unwrap();
 
         assert!(script.contains("#!/bin/bash"));
         assert!(!script.contains("git init --bare"));
+        assert!(script.contains("docker.io"));
     }
 
     #[test]
@@ -272,7 +274,7 @@ mod tests {
         let mut profile = Profile::default_profile();
         profile.packages.system = vec!["gcc; rm -rf /".to_string()];
 
-        let result = generate_user_data(&profile, None, "ec2-user");
+        let result = generate_user_data(&profile, None, "ubuntu");
         assert!(result.is_err());
     }
 
@@ -281,7 +283,7 @@ mod tests {
         let mut profile = Profile::default_profile();
         profile.environment.insert("MALICIOUS".to_string(), "$(cat /etc/passwd)".to_string());
 
-        let result = generate_user_data(&profile, None, "ec2-user");
+        let result = generate_user_data(&profile, None, "ubuntu");
         assert!(result.is_err());
     }
 }
