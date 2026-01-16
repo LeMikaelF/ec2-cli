@@ -276,6 +276,11 @@ HOOKEOF
             "git --git-dir=/home/{}/repos/{}.git config core.worktree /home/{}/work/{}\n",
             username, name, username, name
         ));
+        // Allow pushes to checked-out branch and auto-update working tree
+        script.push_str(&format!(
+            "git --git-dir=/home/{}/repos/{}.git config receive.denyCurrentBranch updateInstead\n",
+            username, name
+        ));
 
         // Create .git file in work directory pointing to the bare repo
         // This allows normal git commands to work in ~/work/<project>/
