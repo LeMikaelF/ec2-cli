@@ -35,7 +35,6 @@ anyhow = "1.0"
 # UI
 indicatif = "0.17"
 dialoguer = "0.11"
-console = "0.15"
 
 # Utilities
 directories = "5.0"
