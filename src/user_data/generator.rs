@@ -189,6 +189,25 @@ HOOKEOF
             username, username, username, name
         ));
         script.push_str(&format!("mkdir -p /home/{}/work/{}\n", username, name));
+
+        // Configure bare repo to know its worktree location
+        // Set core.bare=false since we're adding a worktree to a bare repo
+        script.push_str(&format!(
+            "git -C /home/{}/repos/{}.git config core.bare false\n",
+            username, name
+        ));
+        script.push_str(&format!(
+            "git -C /home/{}/repos/{}.git config core.worktree /home/{}/work/{}\n",
+            username, name, username, name
+        ));
+
+        // Create .git file in work directory pointing to the bare repo
+        // This allows normal git commands to work in ~/work/<project>/
+        script.push_str(&format!(
+            "echo 'gitdir: /home/{}/repos/{}.git' > /home/{}/work/{}/.git\n",
+            username, name, username, name
+        ));
+
         script.push_str(&format!(
             "chown -R {}:{} /home/{}/work/{}\n\n",
             username, username, username, name
