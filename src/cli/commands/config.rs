@@ -5,7 +5,6 @@ use dialoguer::{Input, Select};
 
 use crate::aws::client::{get_default_vpc, AwsClients};
 use crate::config::Settings;
-use crate::git::{check_ssh_config, generate_ssh_config_block, SshConfigStatus};
 use crate::profile::ProfileLoader;
 use crate::ui::create_spinner;
 use crate::{Ec2CliError, Result};
@@ -54,28 +53,6 @@ pub async fn init() -> Result<()> {
             None
         }
     };
-
-    // Check SSH Config
-    print!("  SSH Config: ");
-    match check_ssh_config() {
-        Ok(SshConfigStatus::Configured) => println!("OK"),
-        Ok(SshConfigStatus::NeedsConfiguration) => {
-            println!("NEEDS CONFIGURATION");
-            println!("    Add the following to ~/.ssh/config:\n");
-            println!("{}", generate_ssh_config_block());
-            all_ok = false;
-        }
-        Ok(SshConfigStatus::Missing) => {
-            println!("MISSING");
-            println!("    Create ~/.ssh/config with:\n");
-            println!("{}", generate_ssh_config_block());
-            all_ok = false;
-        }
-        Err(e) => {
-            println!("ERROR: {}", e);
-            all_ok = false;
-        }
-    }
 
     // Check Git
     print!("  Git: ");

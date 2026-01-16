@@ -65,9 +65,6 @@ pub enum Ec2CliError {
     GitRemoteExists(String),
 
     // SSH/SCP Errors
-    #[error("SSH config error: {0}")]
-    SshConfig(String),
-
     #[error("Session Manager plugin not found. Install from: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html")]
     SessionManagerPluginNotFound,
 
