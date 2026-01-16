@@ -415,6 +415,13 @@ READMEEOF
         script.push_str("ENVEOF\n\n");
     }
 
+    // Install Claude Code CLI
+    script.push_str("echo 'Installing Claude Code CLI...'\n");
+    script.push_str(&format!(
+        "su - {} -c 'curl -fsSL https://claude.ai/install.sh | bash'\n\n",
+        username
+    ));
+
     // Signal completion
     script.push_str("echo 'ec2-cli initialization complete!'\n");
     script.push_str(&format!("touch /home/{}/.ec2-cli-ready\n", username));
