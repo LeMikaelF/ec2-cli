@@ -4,9 +4,27 @@ use aws_sdk_ec2::Client as Ec2Client;
 use aws_sdk_iam::Client as IamClient;
 use aws_sdk_ssm::Client as SsmClient;
 use aws_sdk_sts::Client as StsClient;
+use aws_sdk_sts::error::{ProvideErrorMetadata, SdkError};
+use aws_sdk_sts::operation::get_caller_identity::GetCallerIdentityError;
 
 use crate::config::Settings;
 use crate::{Ec2CliError, Result};
+
+/// Format credential errors with helpful hints for common issues
+fn format_credentials_error<R: std::fmt::Debug>(err: &SdkError<GetCallerIdentityError, R>) -> String {
+    let base_msg = match err {
+        SdkError::DispatchFailure(_) => {
+            "Failed to load credentials. If using AWS SSO, run: aws sso login"
+        }
+        SdkError::ServiceError(e) => {
+            return format!("{}: {}",
+                e.err().code().unwrap_or("Unknown"),
+                e.err().message().unwrap_or("No details"));
+        }
+        _ => return err.to_string(),
+    };
+    base_msg.to_string()
+}
 
 /// FNV-1a hash algorithm for stable hashing across Rust versions.
 /// Unlike DefaultHasher, FNV-1a produces consistent results regardless
@@ -65,7 +83,7 @@ impl AwsClients {
         let region = config
             .region()
             .map(|r| r.to_string())
-            .ok_or(Ec2CliError::AwsCredentials)?;
+            .ok_or_else(|| Ec2CliError::AwsCredentials("No AWS region configured. Set AWS_REGION or configure a default region.".to_string()))?;
 
         let ec2 = Ec2Client::new(&config);
         let ssm = SsmClient::new(&config);
@@ -77,11 +95,11 @@ impl AwsClients {
             .get_caller_identity()
             .send()
             .await
-            .map_err(|_| Ec2CliError::AwsCredentials)?;
+            .map_err(|e| Ec2CliError::AwsCredentials(format_credentials_error(&e)))?;
 
         let account_id = identity
             .account()
-            .ok_or(Ec2CliError::AwsCredentials)?
+            .ok_or_else(|| Ec2CliError::AwsCredentials("No account ID in response".to_string()))?
             .to_string();
 
         Ok(Self {
@@ -110,11 +128,11 @@ impl AwsClients {
             .get_caller_identity()
             .send()
             .await
-            .map_err(|_| Ec2CliError::AwsCredentials)?;
+            .map_err(|e| Ec2CliError::AwsCredentials(format_credentials_error(&e)))?;
 
         let account_id = identity
             .account()
-            .ok_or(Ec2CliError::AwsCredentials)?
+            .ok_or_else(|| Ec2CliError::AwsCredentials("No account ID in response".to_string()))?
             .to_string();
 
         Ok(Self {

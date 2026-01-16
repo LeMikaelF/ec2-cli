@@ -15,8 +15,8 @@ pub enum Ec2CliError {
     #[error("AWS IAM error: {0}")]
     Iam(String),
 
-    #[error("AWS credentials not found or invalid")]
-    AwsCredentials,
+    #[error("AWS credentials not found or invalid: {0}")]
+    AwsCredentials(String),
 
     #[error("Resource not found: {0}")]
     ResourceNotFound(String),
