@@ -1,8 +1,11 @@
 use clap::{Parser, Subcommand};
 
 mod aws;
+mod cli;
 mod error;
 mod profile;
+mod state;
+mod user_data;
 
 pub use error::{Ec2CliError, Result};
 pub use profile::{Profile, ProfileLoader};
@@ -159,9 +162,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Up { profile, name, link } => {
-            println!("Launching EC2 instance...");
-            println!("Profile: {:?}, Name: {:?}, Link: {}", profile, name, link);
-            todo!("Implement up command")
+            cli::commands::up::execute(profile, name, link).await?;
+            Ok(())
         }
         Commands::Destroy { name, force } => {
             println!("Destroying instance: {}, Force: {}", name, force);
