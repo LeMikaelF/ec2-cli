@@ -23,12 +23,14 @@ pub fn find_git_user_config() -> GitUserConfig {
     }
 }
 
-/// Get a single git config value by key from global config.
-/// Uses --global to ensure we get the user's global setting, not a repo-specific override.
+/// Get a single git config value by key.
+/// Uses git's normal config resolution order (local -> global -> system) to find
+/// the effective value. This ensures we pick up config from XDG locations,
+/// include files, and system-wide settings.
 /// Returns None if git is not installed, the key is not set, or the value is empty.
 fn get_git_config_value(key: &str) -> Option<String> {
     Command::new("git")
-        .args(["config", "--global", "--get", key])
+        .args(["config", "--get", key])
         .output()
         .ok()
         .filter(|o| o.status.success())
