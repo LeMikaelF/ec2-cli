@@ -1,5 +1,6 @@
 use aws_sdk_ec2::types::{
-    BlockDeviceMapping, EbsBlockDevice, Filter, Instance, InstanceStateName,
+    BlockDeviceMapping, EbsBlockDevice, Filter, HttpTokensState, Instance,
+    InstanceMetadataEndpointState, InstanceMetadataOptionsRequest, InstanceStateName,
     InstanceType as AwsInstanceType, Tag,
 };
 
@@ -23,14 +24,15 @@ pub async fn launch_instance(
     // Parse instance type
     let instance_type = AwsInstanceType::from(profile.instance.instance_type.as_str());
 
-    // Create block device mapping
+    // Create block device mapping with encryption always enabled
     let root_volume = &profile.instance.storage.root_volume;
     let mut ebs_builder = EbsBlockDevice::builder()
         .volume_size(root_volume.size_gb as i32)
         .volume_type(aws_sdk_ec2::types::VolumeType::from(
             root_volume.volume_type.as_str(),
         ))
-        .delete_on_termination(true);
+        .delete_on_termination(true)
+        .encrypted(true); // Always encrypt EBS volumes
 
     if let Some(iops) = root_volume.iops {
         ebs_builder = ebs_builder.iops(iops as i32);
@@ -50,7 +52,7 @@ pub async fn launch_instance(
         user_data.as_bytes(),
     );
 
-    // Launch instance
+    // Launch instance with IMDSv2 required (prevents SSRF credential theft)
     let run_result = clients
         .ec2
         .run_instances()
@@ -67,6 +69,13 @@ pub async fn launch_instance(
         )
         .block_device_mappings(block_device)
         .user_data(&user_data_encoded)
+        .metadata_options(
+            InstanceMetadataOptionsRequest::builder()
+                .http_tokens(HttpTokensState::Required) // Enforce IMDSv2
+                .http_put_response_hop_limit(1)
+                .http_endpoint(InstanceMetadataEndpointState::Enabled)
+                .build(),
+        )
         .tag_specifications(
             aws_sdk_ec2::types::TagSpecification::builder()
                 .resource_type(aws_sdk_ec2::types::ResourceType::Instance)

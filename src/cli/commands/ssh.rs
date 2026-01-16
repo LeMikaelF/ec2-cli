@@ -12,20 +12,21 @@ pub fn execute(name: String, command: Option<String>) -> Result<()> {
         .ok_or_else(|| Ec2CliError::InstanceNotFound(name.clone()))?;
 
     let instance_id = &instance_state.instance_id;
+    let username = &instance_state.username;
 
     if let Some(cmd) = command {
         // Run command via SSH
-        run_ssh_command(instance_id, &cmd)
+        run_ssh_command(instance_id, username, &cmd)
     } else {
         // Start interactive session
-        start_interactive_session(instance_id)
+        start_interactive_session(instance_id, username)
     }
 }
 
-fn start_interactive_session(instance_id: &str) -> Result<()> {
+fn start_interactive_session(instance_id: &str, username: &str) -> Result<()> {
     // Use SSH via SSM proxy
     let status = Command::new("ssh")
-        .arg(format!("ec2-user@{}", instance_id))
+        .arg(format!("{}@{}", username, instance_id))
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -42,9 +43,9 @@ fn start_interactive_session(instance_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_ssh_command(instance_id: &str, command: &str) -> Result<()> {
+fn run_ssh_command(instance_id: &str, username: &str, command: &str) -> Result<()> {
     let status = Command::new("ssh")
-        .arg(format!("ec2-user@{}", instance_id))
+        .arg(format!("{}@{}", username, instance_id))
         .arg(command)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

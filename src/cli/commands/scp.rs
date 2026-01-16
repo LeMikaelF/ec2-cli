@@ -12,6 +12,7 @@ pub fn execute(name: String, src: String, dest: String, recursive: bool) -> Resu
         .ok_or_else(|| Ec2CliError::InstanceNotFound(name.clone()))?;
 
     let instance_id = &instance_state.instance_id;
+    let username = &instance_state.username;
 
     // Parse source and destination to determine direction
     let (local_path, remote_path, is_upload) = parse_paths(&src, &dest)?;
@@ -26,10 +27,10 @@ pub fn execute(name: String, src: String, dest: String, recursive: bool) -> Resu
     if is_upload {
         // Local to remote
         cmd.arg(&local_path);
-        cmd.arg(format!("ec2-user@{}:{}", instance_id, remote_path));
+        cmd.arg(format!("{}@{}:{}", username, instance_id, remote_path));
     } else {
         // Remote to local
-        cmd.arg(format!("ec2-user@{}:{}", instance_id, remote_path));
+        cmd.arg(format!("{}@{}:{}", username, instance_id, remote_path));
         cmd.arg(&local_path);
     }
 

@@ -1,5 +1,6 @@
 use crate::git::{add_remote, git_pull, is_git_repo, list_remotes};
 use crate::state::{get_instance, resolve_instance_name};
+use crate::user_data::validate_project_name;
 use crate::{Ec2CliError, Result};
 
 pub fn execute(name: String, branch: Option<String>) -> Result<()> {
@@ -15,12 +16,17 @@ pub fn execute(name: String, branch: Option<String>) -> Result<()> {
     let instance_state = get_instance(&name)?
         .ok_or_else(|| Ec2CliError::InstanceNotFound(name.clone()))?;
 
+    let username = &instance_state.username;
+
     // Get project name from current directory
     let project_name = std::env::current_dir()?
         .file_name()
         .and_then(|n| n.to_str())
         .map(String::from)
         .ok_or_else(|| Ec2CliError::InvalidPath("Cannot determine project name".to_string()))?;
+
+    // Validate project name for security
+    validate_project_name(&project_name)?;
 
     // Use instance name as remote name
     let remote_name = format!("ec2-{}", name);
@@ -29,8 +35,8 @@ pub fn execute(name: String, branch: Option<String>) -> Result<()> {
     let remotes = list_remotes()?;
     if !remotes.contains(&remote_name) {
         let remote_url = format!(
-            "ec2-user@{}:/home/ec2-user/repos/{}.git",
-            instance_state.instance_id, project_name
+            "{}@{}:/home/{}/repos/{}.git",
+            username, instance_state.instance_id, username, project_name
         );
         println!("Adding remote '{}': {}", remote_name, remote_url);
         add_remote(&remote_name, &remote_url)?;

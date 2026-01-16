@@ -4,8 +4,16 @@ use crate::aws::client::AwsClients;
 use crate::aws::ec2::instance::{launch_instance, wait_for_running, wait_for_ssm_ready};
 use crate::aws::infrastructure::Infrastructure;
 use crate::profile::ProfileLoader;
-use crate::user_data::generate_user_data;
+use crate::user_data::{generate_user_data, validate_project_name};
 use crate::{Ec2CliError, Result};
+
+/// Get the SSH username based on AMI type
+fn get_username_for_ami(ami_type: &str) -> &'static str {
+    match ami_type {
+        "ubuntu-22.04" | "ubuntu-24.04" => "ubuntu",
+        _ => "ec2-user",
+    }
+}
 
 pub async fn execute(
     profile_name: Option<String>,
@@ -23,9 +31,13 @@ pub async fn execute(
         petname::petname(2, "-").unwrap_or_else(|| "ec2-instance".to_string())
     });
 
+    // Determine username based on AMI type
+    let username = get_username_for_ami(&profile.instance.ami.ami_type);
+
     println!("Launching EC2 instance '{}'...", name);
     println!("  Profile: {}", profile.name);
     println!("  Instance type: {}", profile.instance.instance_type);
+    println!("  AMI type: {} (user: {})", profile.instance.ami.ami_type, username);
 
     // Initialize AWS clients
     let spinner = create_spinner("Connecting to AWS...");
@@ -42,8 +54,13 @@ pub async fn execute(
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
 
+    // Validate project name if present
+    if let Some(ref proj_name) = project_name {
+        validate_project_name(proj_name)?;
+    }
+
     // Generate user data
-    let user_data = generate_user_data(&profile, project_name.as_deref());
+    let user_data = generate_user_data(&profile, project_name.as_deref(), username)?;
 
     // Launch instance
     let spinner = create_spinner("Launching instance...");
@@ -60,8 +77,8 @@ pub async fn execute(
     wait_for_ssm_ready(&clients, &instance_id, 600).await?;
     spinner.finish_with_message("SSM agent ready");
 
-    // Save state
-    crate::state::save_instance(&name, &instance_id, &profile.name, &clients.region)?;
+    // Save state with username
+    crate::state::save_instance(&name, &instance_id, &profile.name, &clients.region, username)?;
 
     // Create link file if requested
     if link {
@@ -76,7 +93,7 @@ pub async fn execute(
 
     if let Some(ref proj) = project_name {
         println!("  Push code with: ec2-cli push {}", name);
-        println!("  Git remote: ec2-user@{}:/home/ec2-user/repos/{}.git", instance_id, proj);
+        println!("  Git remote: {}@{}:/home/{}/repos/{}.git", username, instance_id, username, proj);
     }
 
     Ok(())

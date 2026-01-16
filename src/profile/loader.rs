@@ -4,6 +4,28 @@ use std::path::PathBuf;
 
 use super::schema::Profile;
 
+/// Validate a profile name is safe (no path traversal)
+fn validate_profile_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(Ec2CliError::ProfileInvalid(
+            "Profile name cannot be empty".to_string(),
+        ));
+    }
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err(Ec2CliError::ProfileInvalid(format!(
+            "Invalid profile name '{}': path traversal characters not allowed",
+            name
+        )));
+    }
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err(Ec2CliError::ProfileInvalid(format!(
+            "Invalid profile name '{}': only alphanumeric, dash, and underscore allowed",
+            name
+        )));
+    }
+    Ok(())
+}
+
 pub struct ProfileLoader {
     /// Global profiles directory: ~/.config/ec2-cli/profiles/
     global_dir: Option<PathBuf>,
@@ -31,6 +53,9 @@ impl ProfileLoader {
     /// 2. Global profiles (~/.config/ec2-cli/profiles/)
     /// 3. Built-in default profile
     pub fn load(&self, name: &str) -> Result<Profile> {
+        // Validate profile name to prevent path traversal attacks
+        validate_profile_name(name)?;
+
         // Try local first
         if let Some(ref local_dir) = self.local_dir {
             if let Some(profile) = self.try_load_from_dir(local_dir, name)? {
@@ -192,5 +217,21 @@ mod tests {
         let loader = ProfileLoader::new();
         let result = loader.load("nonexistent-profile-xyz");
         assert!(matches!(result, Err(Ec2CliError::ProfileNotFound(_))));
+    }
+
+    #[test]
+    fn test_path_traversal_prevention() {
+        let loader = ProfileLoader::new();
+
+        // Should reject path traversal attempts
+        assert!(loader.load("../../../etc/passwd").is_err());
+        assert!(loader.load("..").is_err());
+        assert!(loader.load("profile/subdir").is_err());
+        assert!(loader.load("profile\\subdir").is_err());
+
+        // Should accept valid profile names
+        assert!(validate_profile_name("my-profile").is_ok());
+        assert!(validate_profile_name("my_profile").is_ok());
+        assert!(validate_profile_name("MyProfile123").is_ok());
     }
 }

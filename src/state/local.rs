@@ -2,7 +2,11 @@ use chrono::{DateTime, Utc};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 use crate::{Ec2CliError, Result};
 
@@ -19,6 +23,13 @@ pub struct InstanceState {
     pub profile: String,
     pub region: String,
     pub created_at: DateTime<Utc>,
+    /// SSH username for the instance (e.g., "ec2-user" for Amazon Linux, "ubuntu" for Ubuntu)
+    #[serde(default = "default_username")]
+    pub username: String,
+}
+
+fn default_username() -> String {
+    "ec2-user".to_string()
 }
 
 impl State {
@@ -38,7 +49,7 @@ impl State {
         Ok(state)
     }
 
-    /// Save state to file
+    /// Save state to file with restricted permissions (0600)
     pub fn save(&self) -> Result<()> {
         let path = state_file_path()?;
 
@@ -48,13 +59,29 @@ impl State {
         }
 
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
+
+        // Write with restricted permissions (owner read/write only)
+        #[cfg(unix)]
+        {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)?;
+            file.write_all(content.as_bytes())?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&path, content)?;
+        }
 
         Ok(())
     }
 
     /// Add or update an instance
-    pub fn add_instance(&mut self, name: &str, instance_id: &str, profile: &str, region: &str) {
+    pub fn add_instance(&mut self, name: &str, instance_id: &str, profile: &str, region: &str, username: &str) {
         self.instances.insert(
             name.to_string(),
             InstanceState {
@@ -62,6 +89,7 @@ impl State {
                 profile: profile.to_string(),
                 region: region.to_string(),
                 created_at: Utc::now(),
+                username: username.to_string(),
             },
         );
     }
@@ -96,9 +124,9 @@ fn state_file_path() -> Result<PathBuf> {
 }
 
 /// Save an instance to state (convenience function)
-pub fn save_instance(name: &str, instance_id: &str, profile: &str, region: &str) -> Result<()> {
+pub fn save_instance(name: &str, instance_id: &str, profile: &str, region: &str, username: &str) -> Result<()> {
     let mut state = State::load()?;
-    state.add_instance(name, instance_id, profile, region);
+    state.add_instance(name, instance_id, profile, region, username);
     state.save()
 }
 
@@ -123,22 +151,30 @@ pub fn list_instances() -> Result<HashMap<String, InstanceState>> {
 }
 
 /// Get linked instance name from current directory
+/// Uses atomic read to avoid TOCTOU race conditions
 pub fn get_linked_instance() -> Result<Option<String>> {
     let link_file = std::env::current_dir()?.join(".ec2-cli").join("instance");
 
-    if !link_file.exists() {
-        return Ok(None);
+    // Check for symlink attack
+    if link_file.is_symlink() {
+        return Err(Ec2CliError::InvalidPath(
+            "Link file cannot be a symlink".to_string(),
+        ));
     }
 
-    let name = std::fs::read_to_string(&link_file)?
-        .trim()
-        .to_string();
-
-    if name.is_empty() {
-        return Ok(None);
+    // Read directly without checking exists() first to avoid TOCTOU
+    match std::fs::read_to_string(&link_file) {
+        Ok(content) => {
+            let name = content.trim().to_string();
+            if name.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(name))
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
     }
-
-    Ok(Some(name))
 }
 
 /// Resolve instance name - use provided name or fall back to linked instance
@@ -162,11 +198,21 @@ mod tests {
     fn test_state_operations() {
         let mut state = State::default();
 
-        state.add_instance("test-instance", "i-123456", "default", "us-west-2");
+        state.add_instance("test-instance", "i-123456", "default", "us-west-2", "ec2-user");
         assert!(state.get_instance("test-instance").is_some());
+        assert_eq!(state.get_instance("test-instance").unwrap().username, "ec2-user");
 
         let removed = state.remove_instance("test-instance");
         assert!(removed.is_some());
         assert!(state.get_instance("test-instance").is_none());
+    }
+
+    #[test]
+    fn test_state_with_ubuntu_user() {
+        let mut state = State::default();
+
+        state.add_instance("ubuntu-instance", "i-789", "ubuntu-profile", "us-east-1", "ubuntu");
+        let instance = state.get_instance("ubuntu-instance").unwrap();
+        assert_eq!(instance.username, "ubuntu");
     }
 }

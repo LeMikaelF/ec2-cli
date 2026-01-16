@@ -403,12 +403,37 @@ async fn create_iam_resources(clients: &AwsClients) -> Result<(String, String)> 
             .await
             .map_err(Ec2CliError::iam)?;
 
-        // Attach SSM managed policy
+        // Use minimal inline policy for SSM instead of the broader managed policy
+        // This restricts permissions to only what's needed for SSM Session Manager
+        let ssm_policy = r#"{
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "ssm:UpdateInstanceInformation",
+                        "ssmmessages:CreateControlChannel",
+                        "ssmmessages:CreateDataChannel",
+                        "ssmmessages:OpenControlChannel",
+                        "ssmmessages:OpenDataChannel",
+                        "ec2messages:AcknowledgeMessage",
+                        "ec2messages:DeleteMessage",
+                        "ec2messages:FailMessage",
+                        "ec2messages:GetEndpoint",
+                        "ec2messages:GetMessages",
+                        "ec2messages:SendReply"
+                    ],
+                    "Resource": "*"
+                }
+            ]
+        }"#;
+
         clients
             .iam
-            .attach_role_policy()
+            .put_role_policy()
             .role_name(role_name)
-            .policy_arn("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
+            .policy_name("ec2-cli-ssm-policy")
+            .policy_document(ssm_policy)
             .send()
             .await
             .map_err(Ec2CliError::iam)?;
