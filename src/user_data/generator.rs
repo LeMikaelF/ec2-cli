@@ -112,27 +112,14 @@ pub fn generate_user_data(
     // Log to file for debugging
     script.push_str("exec > >(tee /var/log/ec2-cli-init.log) 2>&1\n\n");
 
-    // Wait for cloud-init to complete basic setup
-    script.push_str("echo 'Waiting for cloud-init...'\n");
-    script.push_str("cloud-init status --wait || true\n\n");
-
-    // Ensure SSM agent is running (pre-installed on Ubuntu 18.04+ AMIs)
-    // Handle both snap-based (Ubuntu 18.04+) and deb-based (older/custom AMIs) installations
-    script.push_str("echo 'Ensuring SSM agent is running...'\n");
-    script.push_str("if snap list amazon-ssm-agent 2>/dev/null; then\n");
-    script.push_str("    snap start amazon-ssm-agent 2>/dev/null || true\n");
-    script.push_str("    systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true\n");
-    script.push_str("    systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true\n");
-    script.push_str("else\n");
-    script.push_str("    # Fallback to deb-based agent\n");
-    script.push_str("    systemctl enable amazon-ssm-agent 2>/dev/null || true\n");
-    script.push_str("    systemctl start amazon-ssm-agent 2>/dev/null || true\n");
-    script.push_str("fi\n\n");
-
-    // Add SSH public key to authorized_keys
+    // Add SSH public key FIRST - before any blocking operations
+    // This ensures SSH access is available as soon as SSM is ready
     if let Some(key) = ssh_public_key {
         script.push_str("echo 'Configuring SSH public key...'\n");
+        // Note: Home directory /home/{username} is pre-created by Ubuntu AMI
         script.push_str(&format!("mkdir -p /home/{}/.ssh\n", username));
+        // SSH keys are validated in key_loader to contain only base64 chars,
+        // so this quoted here-document is safe from injection
         script.push_str(&format!(
             "cat >> /home/{}/.ssh/authorized_keys << 'SSHEOF'\n",
             username
@@ -150,6 +137,23 @@ pub fn generate_user_data(
             username, username, username
         ));
     }
+
+    // Wait for cloud-init to complete basic setup
+    script.push_str("echo 'Waiting for cloud-init...'\n");
+    script.push_str("cloud-init status --wait || true\n\n");
+
+    // Ensure SSM agent is running (pre-installed on Ubuntu 18.04+ AMIs)
+    // Handle both snap-based (Ubuntu 18.04+) and deb-based (older/custom AMIs) installations
+    script.push_str("echo 'Ensuring SSM agent is running...'\n");
+    script.push_str("if snap list amazon-ssm-agent 2>/dev/null; then\n");
+    script.push_str("    snap start amazon-ssm-agent 2>/dev/null || true\n");
+    script.push_str("    systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true\n");
+    script.push_str("    systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true\n");
+    script.push_str("else\n");
+    script.push_str("    # Fallback to deb-based agent\n");
+    script.push_str("    systemctl enable amazon-ssm-agent 2>/dev/null || true\n");
+    script.push_str("    systemctl start amazon-ssm-agent 2>/dev/null || true\n");
+    script.push_str("fi\n\n");
 
     // Validate and install system packages (Ubuntu/apt-get only)
     script.push_str("echo 'Installing system packages...'\n");
@@ -342,6 +346,28 @@ mod tests {
 
         assert!(!script.contains("Configuring SSH public key"));
         assert!(!script.contains("authorized_keys"));
+    }
+
+    #[test]
+    fn test_ssh_key_injected_before_cloud_init_wait() {
+        // Ensure SSH key is available immediately when SSM reports ready,
+        // not after cloud-init completes (which can take minutes)
+        let profile = Profile::default_profile();
+        let ssh_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx user@example.com";
+        let script =
+            generate_user_data(&profile, Some("test-project"), "ubuntu", Some(ssh_key)).unwrap();
+
+        let ssh_config_pos = script
+            .find("Configuring SSH public key")
+            .expect("SSH config not found");
+        let cloud_init_pos = script
+            .find("Waiting for cloud-init")
+            .expect("cloud-init wait not found");
+
+        assert!(
+            ssh_config_pos < cloud_init_pos,
+            "SSH key setup must occur before cloud-init wait to avoid race condition"
+        );
     }
 
     #[test]
