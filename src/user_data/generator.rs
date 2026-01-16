@@ -476,7 +476,7 @@ MOTDEOF
 
     script.push_str("echo 'Installing AgentFS...'\n");
     script.push_str(&format!(
-        "su - {} -c 'curl -fsSL https://agentfs.ai/install.sh | bash'\n\n",
+        "su - {} -c 'curl -fsSL https://agentfs.ai/install | bash'\n\n",
         username
     ));
 
@@ -770,6 +770,6 @@ mod tests {
 
         // Check AgentFS installation
         assert!(script.contains("Installing AgentFS"));
-        assert!(script.contains("agentfs.ai/install.sh"));
+        assert!(script.contains("agentfs.ai/install"));
     }
 }
