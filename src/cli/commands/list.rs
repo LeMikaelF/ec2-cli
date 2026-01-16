@@ -1,7 +1,7 @@
 use crate::state::list_instances;
 use crate::Result;
 
-pub fn execute(all: bool) -> Result<()> {
+pub fn execute(_all: bool) -> Result<()> {
     let instances = list_instances()?;
 
     if instances.is_empty() {

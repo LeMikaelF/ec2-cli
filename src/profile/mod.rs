@@ -1,7 +1,5 @@
 mod loader;
 mod schema;
 
-pub use loader::{ProfileInfo, ProfileLoader, ProfileSource};
-pub use schema::{
-    AmiConfig, InstanceConfig, PackageConfig, Profile, RootVolumeConfig, RustConfig, StorageConfig,
-};
+pub use loader::ProfileLoader;
+pub use schema::Profile;

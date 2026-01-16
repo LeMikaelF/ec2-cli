@@ -178,24 +178,6 @@ impl Settings {
         }
         Ok(())
     }
-
-    /// Validate subnet ID format (subnet-xxxxxxxx or subnet-xxxxxxxxxxxxxxxxx)
-    pub fn validate_subnet_id(subnet_id: &str) -> Result<()> {
-        if !subnet_id.starts_with("subnet-") {
-            return Err(Ec2CliError::Config(format!(
-                "Invalid subnet ID format: '{}'. Must start with 'subnet-'",
-                subnet_id
-            )));
-        }
-        let suffix = &subnet_id[7..];
-        if suffix.len() < 8 || !suffix.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Ec2CliError::Config(format!(
-                "Invalid subnet ID format: '{}'. Expected format like 'subnet-12345678'",
-                subnet_id
-            )));
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

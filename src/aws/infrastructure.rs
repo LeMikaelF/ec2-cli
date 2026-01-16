@@ -9,7 +9,6 @@ pub struct Infrastructure {
     pub vpc_id: String,
     pub subnet_id: String,
     pub instance_profile_arn: String,
-    pub instance_profile_name: String,
 }
 
 impl Infrastructure {
@@ -34,14 +33,12 @@ impl Infrastructure {
         validate_subnet(clients, &subnet_id, &vpc_id).await?;
 
         // Get or create IAM resources
-        let (instance_profile_arn, instance_profile_name) =
-            get_or_create_iam_resources(clients).await?;
+        let instance_profile_arn = get_or_create_iam_resources(clients).await?;
 
         Ok(Self {
             vpc_id,
             subnet_id,
             instance_profile_arn,
-            instance_profile_name,
         })
     }
 }
@@ -73,7 +70,7 @@ async fn validate_subnet(clients: &AwsClients, subnet_id: &str, vpc_id: &str) ->
 }
 
 /// Get or create IAM role and instance profile for SSM
-async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, String)> {
+async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<String> {
     let hash = super::client::machine_hash();
     let role_name = format!("ec2-cli-instance-role-{}", hash);
     let profile_name = format!("ec2-cli-instance-profile-{}", hash);
@@ -240,7 +237,7 @@ async fn get_or_create_iam_resources(clients: &AwsClients) -> Result<(String, St
         }
     };
 
-    Ok((profile_arn, profile_name))
+    Ok(profile_arn)
 }
 
 const SSM_MANAGED_POLICY_ARN: &str = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore";

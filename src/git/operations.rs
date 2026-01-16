@@ -50,20 +50,6 @@ pub fn git_pull(remote: &str, branch: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Get the current branch name
-pub fn get_current_branch() -> Result<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| Ec2CliError::Git(e.to_string()))?;
-
-    if !output.status.success() {
-        return Err(Ec2CliError::Git("Failed to get current branch".to_string()));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
 /// Check if we're in a git repository
 pub fn is_git_repo() -> bool {
     Command::new("git")
@@ -92,20 +78,6 @@ pub fn list_remotes() -> Result<Vec<String>> {
         .collect();
 
     Ok(remotes)
-}
-
-/// Get URL for a remote
-pub fn get_remote_url(remote: &str) -> Result<String> {
-    let output = Command::new("git")
-        .args(["remote", "get-url", remote])
-        .output()
-        .map_err(|e| Ec2CliError::Git(e.to_string()))?;
-
-    if !output.status.success() {
-        return Err(Ec2CliError::Git(format!("Remote '{}' not found", remote)));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Add a remote using git command

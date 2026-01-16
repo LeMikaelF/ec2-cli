@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use aws_sdk_ec2::types::{
-    BlockDeviceMapping, EbsBlockDevice, Filter, HttpTokensState, Instance,
+    BlockDeviceMapping, EbsBlockDevice, Filter, HttpTokensState,
     InstanceMetadataEndpointState, InstanceMetadataOptionsRequest, InstanceStateName,
     InstanceType as AwsInstanceType,
 };
@@ -11,7 +11,7 @@ use crate::config::Settings;
 use crate::profile::Profile;
 use crate::{Ec2CliError, Result};
 
-use super::super::client::{create_tags, AwsClients, MANAGED_TAG_KEY, MANAGED_TAG_VALUE, NAME_TAG_KEY};
+use super::super::client::{create_tags, AwsClients};
 use super::super::infrastructure::Infrastructure;
 
 /// Create a per-instance security group
@@ -334,83 +334,6 @@ pub async fn get_instance_state(
         .ok_or_else(|| Ec2CliError::InstanceState("Unknown state".to_string()))
 }
 
-/// Get instance by name
-pub async fn get_instance_by_name(
-    clients: &AwsClients,
-    name: &str,
-) -> Result<Option<Instance>> {
-    let result = clients
-        .ec2
-        .describe_instances()
-        .filters(
-            Filter::builder()
-                .name(format!("tag:{}", NAME_TAG_KEY))
-                .values(name)
-                .build(),
-        )
-        .filters(
-            Filter::builder()
-                .name(format!("tag:{}", MANAGED_TAG_KEY))
-                .values(MANAGED_TAG_VALUE)
-                .build(),
-        )
-        .filters(
-            Filter::builder()
-                .name("instance-state-name")
-                .values("pending")
-                .values("running")
-                .values("stopping")
-                .values("stopped")
-                .build(),
-        )
-        .send()
-        .await
-        .map_err(Ec2CliError::ec2)?;
-
-    Ok(result
-        .reservations()
-        .first()
-        .and_then(|r| r.instances().first())
-        .cloned())
-}
-
-/// List all managed instances
-pub async fn list_managed_instances(
-    clients: &AwsClients,
-    include_terminated: bool,
-) -> Result<Vec<Instance>> {
-    let mut builder = clients
-        .ec2
-        .describe_instances()
-        .filters(
-            Filter::builder()
-                .name(format!("tag:{}", MANAGED_TAG_KEY))
-                .values(MANAGED_TAG_VALUE)
-                .build(),
-        );
-
-    if !include_terminated {
-        builder = builder.filters(
-            Filter::builder()
-                .name("instance-state-name")
-                .values("pending")
-                .values("running")
-                .values("stopping")
-                .values("stopped")
-                .build(),
-        );
-    }
-
-    let result = builder.send().await.map_err(Ec2CliError::ec2)?;
-
-    let mut instances = Vec::new();
-    for reservation in result.reservations() {
-        instances.extend(reservation.instances().iter().cloned());
-    }
-
-    Ok(instances)
-}
-
 /// Terminate an instance
 pub async fn terminate_instance(clients: &AwsClients, instance_id: &str) -> Result<()> {
     clients
@@ -422,13 +345,4 @@ pub async fn terminate_instance(clients: &AwsClients, instance_id: &str) -> Resu
         .map_err(Ec2CliError::ec2)?;
 
     Ok(())
-}
-
-/// Get tag value from instance
-pub fn get_tag_value(instance: &Instance, key: &str) -> Option<String> {
-    instance
-        .tags()
-        .iter()
-        .find(|t| t.key() == Some(key))
-        .and_then(|t| t.value().map(String::from))
 }

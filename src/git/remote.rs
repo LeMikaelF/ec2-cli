@@ -1,65 +1,4 @@
-use std::path::Path;
-
 use crate::{Ec2CliError, Result};
-
-/// Add a git remote for an EC2 instance
-pub fn add_remote(
-    repo_path: &Path,
-    remote_name: &str,
-    instance_id: &str,
-    project_name: &str,
-) -> Result<()> {
-    let repo = git2::Repository::open(repo_path).map_err(|_| Ec2CliError::NotGitRepo)?;
-
-    // Check if remote already exists
-    if repo.find_remote(remote_name).is_ok() {
-        return Err(Ec2CliError::GitRemoteExists(remote_name.to_string()));
-    }
-
-    // Build remote URL for SSH via SSM
-    let remote_url = format!(
-        "ubuntu@{}:/home/ubuntu/repos/{}.git",
-        instance_id, project_name
-    );
-
-    repo.remote(remote_name, &remote_url)
-        .map_err(|e| Ec2CliError::Git(e.to_string()))?;
-
-    Ok(())
-}
-
-/// Remove a git remote
-pub fn remove_remote(repo_path: &Path, remote_name: &str) -> Result<()> {
-    let repo = git2::Repository::open(repo_path).map_err(|_| Ec2CliError::NotGitRepo)?;
-
-    repo.remote_delete(remote_name)
-        .map_err(|e| Ec2CliError::Git(e.to_string()))?;
-
-    Ok(())
-}
-
-/// Get the current project name from the repository
-pub fn get_project_name(repo_path: &Path) -> Result<String> {
-    // Use the directory name as project name
-    repo_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(String::from)
-        .ok_or_else(|| Ec2CliError::InvalidPath("Cannot determine project name".to_string()))
-}
-
-/// Check if a path is a git repository
-pub fn is_git_repo(path: &Path) -> bool {
-    git2::Repository::open(path).is_ok()
-}
-
-/// Get the remote URL for an instance
-pub fn get_remote_url(instance_id: &str, project_name: &str) -> String {
-    format!(
-        "ubuntu@{}:/home/ubuntu/repos/{}.git",
-        instance_id, project_name
-    )
-}
 
 /// Check if SSH config has the required SSM proxy configuration
 pub fn check_ssh_config() -> Result<SshConfigStatus> {
@@ -117,13 +56,6 @@ impl std::fmt::Display for SshConfigStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_get_remote_url() {
-        let url = get_remote_url("i-123456", "my-project");
-        assert_eq!(url, "ubuntu@i-123456:/home/ubuntu/repos/my-project.git");
-    }
 
     #[test]
     fn test_generate_ssh_config() {

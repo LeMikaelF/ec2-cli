@@ -39,7 +39,6 @@ pub struct AwsClients {
     pub ec2: Ec2Client,
     pub ssm: SsmClient,
     pub iam: IamClient,
-    pub sts: StsClient,
     pub region: String,
     pub account_id: String,
 }
@@ -91,7 +90,6 @@ impl AwsClients {
             ec2,
             ssm,
             iam,
-            sts,
             region,
             account_id,
         })
@@ -125,7 +123,6 @@ impl AwsClients {
             ec2,
             ssm,
             iam,
-            sts,
             region: region.to_string(),
             account_id,
         })
