@@ -216,6 +216,13 @@ pub fn generate_user_data(
         username, username, username, username
     ));
 
+    // Create docker group early and add user
+    // This ensures docker group membership is active when user connects via SSM,
+    // even if they connect before Docker installation completes
+    script.push_str("echo 'Setting up docker group...'\n");
+    script.push_str("groupadd -f docker\n"); // -f: don't fail if group exists
+    script.push_str(&format!("usermod -aG docker {}\n\n", username));
+
     // Set up git repo for the project if name provided
     if let Some(name) = project_name {
         // Project name is validated before calling this function
@@ -342,11 +349,11 @@ READMEEOF
     }
 
     // Install Docker
+    // Note: docker group and user membership already configured earlier in the script
     script.push_str("echo 'Installing Docker...'\n");
     script.push_str("apt-get install -y docker.io\n");
     script.push_str("systemctl enable docker\n");
-    script.push_str("systemctl start docker\n");
-    script.push_str(&format!("usermod -aG docker {}\n\n", username));
+    script.push_str("systemctl start docker\n\n");
 
     // Install Rust if enabled
     if profile.packages.rust.enabled {
@@ -519,6 +526,37 @@ mod tests {
         assert!(
             marker_pos > repo_setup_pos,
             "Marker file must be created after git repo setup"
+        );
+    }
+
+    #[test]
+    fn test_docker_group_setup_before_package_installation() {
+        let profile = Profile::default_profile();
+        let script =
+            generate_user_data(&profile, Some("test-project"), "ubuntu", None, None).unwrap();
+
+        let docker_group_pos = script
+            .find("Setting up docker group")
+            .expect("docker group setup not found");
+        let package_install_pos = script
+            .find("Installing system packages")
+            .expect("package installation not found");
+
+        assert!(
+            docker_group_pos < package_install_pos,
+            "Docker group setup must occur before package installation"
+        );
+    }
+
+    #[test]
+    fn test_docker_group_uses_force_flag() {
+        let profile = Profile::default_profile();
+        let script =
+            generate_user_data(&profile, Some("test-project"), "ubuntu", None, None).unwrap();
+
+        assert!(
+            script.contains("groupadd -f docker"),
+            "groupadd should use -f flag for idempotency"
         );
     }
 
