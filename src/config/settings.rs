@@ -27,6 +27,10 @@ pub struct Settings {
     /// Subnet ID to launch instances in
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subnet_id: Option<String>,
+
+    /// Whether the manual hint has been shown
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_hint_shown: bool,
 }
 
 impl Settings {
@@ -139,6 +143,12 @@ impl Settings {
     /// Check if Username tag is configured
     pub fn has_username_tag(&self) -> bool {
         self.tags.contains_key("Username")
+    }
+
+    /// Mark the manual hint as shown and persist to config
+    pub fn mark_manual_hint_shown(&mut self) -> Result<()> {
+        self.manual_hint_shown = true;
+        self.save()
     }
 
     /// Validate AWS region format (e.g., us-east-1, eu-west-2)

@@ -1,8 +1,10 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use clap_complete::CompleteEnv;
+use dialoguer::console::Style;
 
 use cli::completions::{InstanceCompleter, ProfileCompleter, ShellType};
+use config::Settings;
 
 mod aws;
 mod cli;
@@ -149,6 +151,9 @@ enum Commands {
         #[arg(value_enum)]
         shell: ShellType,
     },
+
+    /// Display comprehensive user manual
+    Manual,
 }
 
 #[derive(Subcommand)]
@@ -206,6 +211,21 @@ enum TagsCommands {
     },
 }
 
+/// Show a one-time hint about the manual command
+fn maybe_show_manual_hint() {
+    if let Ok(mut settings) = Settings::load() {
+        if !settings.manual_hint_shown {
+            let cyan = Style::new().cyan();
+            eprintln!(
+                "{} Run 'ec2-cli manual' to view the complete user guide.",
+                cyan.apply_to("Tip:")
+            );
+            // Ignore errors when saving - hint is non-critical
+            let _ = settings.mark_manual_hint_shown();
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle shell completion callbacks (when COMPLETE env var is set)
@@ -216,14 +236,17 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Up { profile, name, link } => {
             cli::commands::up::execute(profile, name, link).await?;
+            maybe_show_manual_hint();
             Ok(())
         }
         Commands::Destroy { name, force } => {
             cli::commands::destroy::execute(name, force).await?;
+            maybe_show_manual_hint();
             Ok(())
         }
         Commands::Ssh { name, command } => {
             cli::commands::ssh::execute(name, command)?;
+            maybe_show_manual_hint();
             Ok(())
         }
         Commands::Scp {
@@ -245,10 +268,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Status { name } => {
             cli::commands::status::execute(name).await?;
+            maybe_show_manual_hint();
             Ok(())
         }
         Commands::List { all } => {
             cli::commands::list::execute(all)?;
+            maybe_show_manual_hint();
             Ok(())
         }
         Commands::Profile { command } => match command {
@@ -367,6 +392,10 @@ async fn main() -> anyhow::Result<()> {
                 ShellType::Fish => clap_complete::Shell::Fish,
             };
             generate(shell, &mut Cli::command(), "ec2-cli", &mut io::stdout());
+            Ok(())
+        }
+        Commands::Manual => {
+            cli::commands::manual::execute();
             Ok(())
         }
     }

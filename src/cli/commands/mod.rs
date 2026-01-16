@@ -2,6 +2,7 @@ pub mod config;
 pub mod destroy;
 pub mod list;
 pub mod logs;
+pub mod manual;
 pub mod pull;
 pub mod push;
 pub mod scp;
