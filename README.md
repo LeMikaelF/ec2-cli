@@ -17,7 +17,6 @@ Ephemeral EC2 Development Environment Manager - Launch temporary, private EC2 in
 - AWS CLI configured with credentials (`aws configure`)
 - [Session Manager Plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 - Git
-- SSH config for SSM proxy (see below)
 
 ## Installation
 
@@ -74,17 +73,6 @@ cargo install --path .
 | `ec2-cli profile list` | List available profiles |
 | `ec2-cli profile show <NAME>` | Show profile details |
 | `ec2-cli profile validate <NAME>` | Validate a profile |
-
-## SSH Configuration
-
-Add to `~/.ssh/config`:
-
-```
-# EC2 SSH via SSM Session Manager
-Host i-* mi-*
-    User ubuntu
-    ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'"
-```
 
 ## Profiles
 
