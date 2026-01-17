@@ -262,18 +262,25 @@ impl Vcs for Jj {
     }
 
     fn push(&self, remote: &str, options: PushOptions) -> Result<()> {
+        // Track the bookmark on the remote first (allows pushing new bookmarks)
+        if let Some(b) = options.branch {
+            let _ = Command::new("jj")
+                .args([
+                    "bookmark",
+                    "track",
+                    "--ignore-working-copy",
+                    &format!("{}@{}", b, remote),
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+
         let mut cmd = Command::new("jj");
-        cmd.args([
-            "git",
-            "push",
-            "--ignore-working-copy",
-            "--allow-new",
-            "--remote",
-            remote,
-        ]);
+        cmd.args(["git", "push", "--ignore-working-copy", "--remote", remote]);
 
         if let Some(b) = options.branch {
-            cmd.args(["--bookmark", b]);
+            cmd.args(["-b", b]);
         }
 
         if let Some(ssh_cmd) = options.ssh_command {
@@ -375,13 +382,13 @@ impl Vcs for Jj {
     }
 
     fn current_branch(&self) -> Result<Option<String>> {
-        // Get bookmarks pointing to the current working copy commit's parent
+        // Get bookmarks on pushable commits: mutable, non-empty description, has content or is merge
         let output = Command::new("jj")
             .args([
                 "log",
                 "--ignore-working-copy",
                 "-r",
-                "@-",
+                r#"heads(::@ & mutable() & ~description(exact:"") & (~empty() | merges()))"#,
                 "--no-graph",
                 "-T",
                 "bookmarks",
@@ -398,11 +405,13 @@ impl Vcs for Jj {
         let bookmarks_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // bookmarks template returns space-separated list, take the first one
-        // Format can be "main" or "main@origin" etc, strip the @remote suffix
+        // Format can be "main", "main*" (modified), or "main@origin" etc
+        // Strip the @remote suffix and * (modified) suffix
         let bookmark = bookmarks_str
             .split_whitespace()
             .next()
             .map(|b| b.split('@').next().unwrap_or(b))
+            .map(|b| b.trim_end_matches('*'))
             .filter(|b| !b.is_empty())
             .map(String::from);
 
