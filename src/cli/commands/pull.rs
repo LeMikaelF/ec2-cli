@@ -1,4 +1,4 @@
-use crate::git::{add_remote, git_pull, is_git_repo, list_remotes};
+use crate::git::{detect_vcs, PullOptions};
 use crate::state::{get_instance, resolve_instance_name};
 use crate::user_data::validate_project_name;
 use crate::{Ec2CliError, Result};
@@ -6,10 +6,8 @@ use crate::{Ec2CliError, Result};
 use super::ssm_ssh_command;
 
 pub fn execute(name: String, branch: Option<String>) -> Result<()> {
-    // Check we're in a git repo
-    if !is_git_repo() {
-        return Err(Ec2CliError::NotGitRepo);
-    }
+    // Detect which VCS is in use
+    let vcs = detect_vcs().ok_or(Ec2CliError::NotGitRepo)?;
 
     // Resolve instance name
     let name = resolve_instance_name(Some(&name))?;
@@ -33,21 +31,28 @@ pub fn execute(name: String, branch: Option<String>) -> Result<()> {
     // Use instance name as remote name
     let remote_name = format!("ec2-{}", name);
 
-    // Add remote if it doesn't exist
-    let remotes = list_remotes()?;
-    if !remotes.contains(&remote_name) {
-        let remote_url = format!(
-            "{}@{}:/home/{}/repos/{}.git",
-            username, instance_state.instance_id, username, project_name
-        );
+    // Build the remote URL
+    let remote_url = format!(
+        "{}@{}:/home/{}/repos/{}.git",
+        username, instance_state.instance_id, username, project_name
+    );
+
+    // Get SSH command for SSM
+    let ssh_cmd = ssm_ssh_command(instance_state.ssh_key_path.as_deref());
+
+    // Ensure remote exists
+    if vcs.ensure_remote(&remote_name, &remote_url)? {
         println!("Adding remote '{}': {}", remote_name, remote_url);
-        add_remote(&remote_name, &remote_url)?;
     }
 
-    // Pull from remote with SSM SSH command (include identity file if available)
-    let ssh_cmd = ssm_ssh_command(instance_state.ssh_key_path.as_deref());
-    println!("Pulling from {}...", remote_name);
-    git_pull(&remote_name, branch.as_deref(), Some(&ssh_cmd))?;
+    println!("Pulling from {} (using {})...", remote_name, vcs.vcs_type());
+    vcs.pull(
+        &remote_name,
+        PullOptions {
+            branch: branch.as_deref(),
+            ssh_command: Some(&ssh_cmd),
+        },
+    )?;
 
     println!("Pull complete!");
     Ok(())

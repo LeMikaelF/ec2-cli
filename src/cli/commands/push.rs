@@ -1,30 +1,13 @@
-use crate::git::{add_remote, git_push, is_git_repo, list_remotes};
+use crate::git::{detect_vcs, PushOptions};
 use crate::state::{get_instance, resolve_instance_name};
 use crate::user_data::validate_project_name;
 use crate::{Ec2CliError, Result};
-use std::process::Command;
 
 use super::ssm_ssh_command;
 
-/// Get the current git branch name
-fn get_current_branch() -> Result<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| Ec2CliError::Git(e.to_string()))?;
-
-    if !output.status.success() {
-        return Err(Ec2CliError::Git("Failed to get current branch".to_string()));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
 pub fn execute(name: String, branch: Option<String>) -> Result<()> {
-    // Check we're in a git repo
-    if !is_git_repo() {
-        return Err(Ec2CliError::NotGitRepo);
-    }
+    // Detect which VCS is in use
+    let vcs = detect_vcs().ok_or(Ec2CliError::NotGitRepo)?;
 
     // Resolve instance name
     let name = resolve_instance_name(Some(&name))?;
@@ -48,35 +31,34 @@ pub fn execute(name: String, branch: Option<String>) -> Result<()> {
     // Use instance name as remote name
     let remote_name = format!("ec2-{}", name);
 
-    // Check if remote already exists
-    let remotes = list_remotes()?;
-    let is_new_remote = !remotes.contains(&remote_name);
+    // Build the remote URL
+    let remote_url = format!(
+        "{}@{}:/home/{}/repos/{}.git",
+        username, instance_state.instance_id, username, project_name
+    );
 
-    // Add remote if it doesn't exist
-    if is_new_remote {
-        let remote_url = format!(
-            "{}@{}:/home/{}/repos/{}.git",
-            username, instance_state.instance_id, username, project_name
-        );
+    // Get SSH command for SSM
+    let ssh_cmd = ssm_ssh_command(instance_state.ssh_key_path.as_deref());
+
+    // Ensure remote exists
+    if vcs.ensure_remote(&remote_name, &remote_url)? {
         println!("Adding remote '{}': {}", remote_name, remote_url);
-        add_remote(&remote_name, &remote_url)?;
     }
 
-    // Get branch to push (use provided branch or current branch)
+    // Get branch to push (use provided or detect current)
     let branch_to_push = match branch {
-        Some(b) => b,
-        None => get_current_branch()?,
+        Some(b) => Some(b),
+        None => vcs.current_branch()?,
     };
 
-    // Push to remote with SSM SSH command (include identity file if available)
-    // Always set upstream - it's idempotent and ensures the branch is tracked
-    let ssh_cmd = ssm_ssh_command(instance_state.ssh_key_path.as_deref());
-    println!("Pushing to {}...", remote_name);
-    git_push(
+    println!("Pushing to {} (using {})...", remote_name, vcs.vcs_type());
+    vcs.push(
         &remote_name,
-        Some(&branch_to_push),
-        true, // always set upstream
-        Some(&ssh_cmd),
+        PushOptions {
+            branch: branch_to_push.as_deref(),
+            set_upstream: true,
+            ssh_command: Some(&ssh_cmd),
+        },
     )?;
 
     println!("Push complete!");
