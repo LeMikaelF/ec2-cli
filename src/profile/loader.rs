@@ -1,5 +1,4 @@
 use crate::{Ec2CliError, Result};
-use directories::ProjectDirs;
 use std::path::{Path, PathBuf};
 
 use super::schema::Profile;
@@ -38,8 +37,16 @@ pub struct ProfileLoader {
 
 impl ProfileLoader {
     pub fn new() -> Self {
-        let global_dir =
-            ProjectDirs::from("", "", "ec2-cli").map(|dirs| dirs.config_dir().join("profiles"));
+        // Use XDG-style directory: ~/.config/ec2-cli/profiles/
+        let global_dir = std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+            .map(|home| {
+                PathBuf::from(home)
+                    .join(".config")
+                    .join("ec2-cli")
+                    .join("profiles")
+            });
 
         let local_dir = std::env::current_dir()
             .ok()

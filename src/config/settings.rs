@@ -1,4 +1,3 @@
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
@@ -36,7 +35,16 @@ pub struct Settings {
 impl Settings {
     /// Get the path to the config file
     pub fn config_path() -> Option<PathBuf> {
-        ProjectDirs::from("", "", "ec2-cli").map(|dirs| dirs.config_dir().join("config.json"))
+        // Use XDG-style directory: ~/.config/ec2-cli/config.json
+        std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+            .map(|home| {
+                PathBuf::from(home)
+                    .join(".config")
+                    .join("ec2-cli")
+                    .join("config.json")
+            })
     }
 
     /// Load settings from the config file

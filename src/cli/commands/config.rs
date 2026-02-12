@@ -287,8 +287,15 @@ pub fn show() -> Result<()> {
     }
 
     // State file
-    let state_dir = directories::ProjectDirs::from("", "", "ec2-cli")
-        .and_then(|dirs| dirs.state_dir().map(|d| d.to_path_buf()));
+    let state_dir = std::env::var("HOME")
+        .ok()
+        .or_else(|| std::env::var("USERPROFILE").ok())
+        .map(|home| {
+            std::path::PathBuf::from(home)
+                .join(".local")
+                .join("state")
+                .join("ec2-cli")
+        });
 
     println!();
     println!("State directory:");

@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
@@ -126,13 +125,18 @@ impl State {
 /// Get the path to the state file
 fn state_file_path() -> Result<PathBuf> {
     // Use XDG state directory: ~/.local/state/ec2-cli/state.json
-    let base_dir = ProjectDirs::from("", "", "ec2-cli")
-        .and_then(|dirs| dirs.state_dir().map(|d| d.to_path_buf()))
+    let base_dir = std::env::var("HOME")
+        .ok()
+        .or_else(|| std::env::var("USERPROFILE").ok())
+        .map(|home| {
+            PathBuf::from(home)
+                .join(".local")
+                .join("state")
+                .join("ec2-cli")
+        })
         .unwrap_or_else(|| {
-            // Fallback to home directory
-            std::env::var("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("."))
+            // Fallback to current directory
+            PathBuf::from(".")
                 .join(".local")
                 .join("state")
                 .join("ec2-cli")
